@@ -30,18 +30,29 @@ const qaScorecardRepoRefSchema = z
     message: "repo refs must not be absolute or contain parent-directory segments",
   });
 
-const qaScorecardEvidenceRefKindSchema = z.enum([
+const qaScorecardEvidenceKindSchema = z.enum([
   "qa-scenario",
   "vitest",
   "playwright",
   "live-transport-check",
 ]);
 
-const qaScorecardTaxonomyRefSchema = z
+const qaScorecardEvidenceSchema = z
   .object({
-    sourcePath: qaScorecardRepoRefSchema,
+    coverageId: qaScorecardIdSchema,
+    kind: qaScorecardEvidenceKindSchema,
+    path: qaScorecardRepoRefSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((evidence, ctx) => {
+    if (evidence.kind !== "qa-scenario" && !evidence.path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["path"],
+        message: `${evidence.kind} evidence must include a repo-root relative path`,
+      });
+    }
+  });
 
 const qaScorecardProfileSchema = z.object({
   id: qaScorecardIdSchema,
@@ -51,18 +62,17 @@ const qaScorecardProfileSchema = z.object({
 
 const qaScorecardCategorySchema = z.object({
   id: qaScorecardIdSchema,
-  coverageIds: z.array(qaScorecardIdSchema).default([]),
+  evidence: z.array(qaScorecardEvidenceSchema).default([]),
 });
 
 const qaScorecardTaxonomySchema = z
   .object({
     version: z.literal(1),
-    id: qaScorecardIdSchema,
     title: z.string().trim().min(1),
-    taxonomy: qaScorecardTaxonomyRefSchema,
     profiles: z.array(qaScorecardProfileSchema).min(1),
     categories: z.array(qaScorecardCategorySchema).min(1),
   })
+  .strict()
   .superRefine((taxonomy, ctx) => {
     const seenProfileIds = new Set<string>();
     for (const [profileIndex, profile] of taxonomy.profiles.entries()) {
@@ -99,24 +109,23 @@ const qaScorecardTaxonomySchema = z
       }
       seenCategoryIds.add(category.id);
 
-      const seenCoverageIds = new Set<string>();
-      for (const [coverageIndex, coverageId] of category.coverageIds.entries()) {
-        if (seenCoverageIds.has(coverageId)) {
+      const seenEvidenceRefs = new Set<string>();
+      for (const [evidenceIndex, evidence] of category.evidence.entries()) {
+        const evidenceKey = [evidence.coverageId, evidence.kind, evidence.path ?? ""].join("\0");
+        if (seenEvidenceRefs.has(evidenceKey)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            path: ["categories", categoryIndex, "coverageIds", coverageIndex],
-            message: `duplicate coverage id in category ${category.id}: ${coverageId}`,
+            path: ["categories", categoryIndex, "evidence", evidenceIndex],
+            message: `duplicate evidence ref in category ${category.id}: ${evidence.coverageId}/${evidence.kind}`,
           });
         }
-        seenCoverageIds.add(coverageId);
+        seenEvidenceRefs.add(evidenceKey);
       }
     }
   });
 
-export type QaScorecardEvidenceRefKind = z.infer<typeof qaScorecardEvidenceRefKindSchema>;
-
 const qaMaturityCategorySchema = z.object({
-  id: qaScorecardIdSchema,
+  id: qaScorecardIdSchema.optional(),
   name: z.string().trim().min(1),
 });
 
@@ -135,18 +144,19 @@ const qaMaturityTaxonomySchema = z.object({
 });
 
 export type QaScorecardTaxonomy = z.infer<typeof qaScorecardTaxonomySchema>;
-export type QaScorecardTaxonomyCategory = QaScorecardTaxonomy["categories"][number];
+export type QaScorecardEvidenceKind = z.infer<typeof qaScorecardEvidenceKindSchema>;
 type QaMaturityTaxonomy = z.infer<typeof qaMaturityTaxonomySchema>;
 
 export type QaScorecardValidationIssueCode =
   | "coverage-id-missing-primary-evidence"
   | "coverage-id-not-found"
+  | "evidence-ref-coverage-mismatch"
+  | "evidence-ref-not-found"
   | "taxonomy-ref-not-found"
   | "taxonomy-category-ref-not-found"
   | "profile-category-ref-not-found"
-  | "category-without-profile-or-coverage"
   | "mapped-category-missing-profile-membership"
-  | "profile-category-missing-coverage-mapping"
+  | "profile-category-missing-evidence"
   | "taxonomy-fixture-not-found";
 
 export type QaScorecardValidationIssue = {
@@ -157,6 +167,14 @@ export type QaScorecardValidationIssue = {
   message: string;
 };
 
+export type QaScorecardEvidenceReport = {
+  coverageId: string;
+  kind: QaScorecardEvidenceKind;
+  path: string | null;
+  role: "primary" | "secondary" | "explicit";
+  scenarioRefs: string[];
+};
+
 export type QaScorecardCategoryMappingReport = {
   id: string;
   taxonomySurfaceId: string;
@@ -164,27 +182,19 @@ export type QaScorecardCategoryMappingReport = {
   mappingStatus: "mapped" | "partial" | "missing";
   profiles: string[];
   coverageIds: string[];
-  evidence: Array<{
-    kind: QaScorecardEvidenceRefKind;
-    path: string;
-    coverageIds: string[];
-    role: "primary" | "secondary";
-  }>;
+  evidence: QaScorecardEvidenceReport[];
+  scenarioRefs: string[];
   missingCoverageIds: string[];
-  missingPrimaryEvidenceCoverageIds: string[];
+  missingEvidenceRefs: string[];
 };
 
 export type QaScorecardProfileReport = {
   id: string;
   categoryIds: string[];
-  fulfilledCategoryCount: number;
-  requiredCategoryCount: number;
-  fulfillmentPercent: number;
 };
 
 export type QaScorecardTaxonomyReport = {
   taxonomyPath: string | null;
-  taxonomyId: string | null;
   title: string | null;
   taxonomy: {
     sourcePath: string;
@@ -192,8 +202,8 @@ export type QaScorecardTaxonomyReport = {
   profileCount: number;
   profiles: QaScorecardProfileReport[];
   categoryCount: number;
-  fulfilledCategoryCount: number;
   requiredCategoryCount: number;
+  fulfilledCategoryCount: number;
   taxonomyFulfillmentPercent: number;
   evidenceRefCount: number;
   mappedCoverageIdCount: number;
@@ -203,6 +213,11 @@ export type QaScorecardTaxonomyReport = {
   validationIssueCount: number;
   validationIssues: QaScorecardValidationIssue[];
   categories: QaScorecardCategoryMappingReport[];
+};
+
+type MaturityCategoryRef = {
+  surfaceId: string;
+  categoryName: string;
 };
 
 function walkUpDirectories(start: string): string[] {
@@ -273,37 +288,40 @@ function parseQaMaturityTaxonomy(value: unknown, label = QA_MATURITY_TAXONOMY_PA
   throw new Error(`${label}: ${issues}`);
 }
 
-function readQaMaturityTaxonomy(repoRoot: string | undefined, taxonomySourcePath: string) {
+function readQaMaturityTaxonomy(repoRoot: string | undefined) {
   const taxonomyPath = repoRoot
-    ? path.join(repoRoot, taxonomySourcePath)
-    : resolveRepoPath(taxonomySourcePath);
+    ? path.join(repoRoot, QA_MATURITY_TAXONOMY_PATH)
+    : resolveRepoPath(QA_MATURITY_TAXONOMY_PATH);
   if (!taxonomyPath || !fs.existsSync(taxonomyPath)) {
     return null;
   }
   return parseQaMaturityTaxonomy(
     YAML.parse(fs.readFileSync(taxonomyPath, "utf8")) as unknown,
-    taxonomySourcePath,
+    QA_MATURITY_TAXONOMY_PATH,
   );
 }
 
-function maturityCategoryId(surfaceId: string, categoryId: string) {
-  return `${surfaceId}.${categoryId}`;
+function maturityCategoryId(surfaceId: string, category: { id?: string; name: string }) {
+  return `${surfaceId}.${category.id}`;
 }
 
-function buildMaturityCategoriesById(taxonomy: QaMaturityTaxonomy | null) {
-  const categoriesById = new Map<string, { surfaceId: string; name: string }>();
+function buildMaturityCategoryRefs(taxonomy: QaMaturityTaxonomy | null) {
+  const refs = new Map<string, MaturityCategoryRef>();
   if (!taxonomy) {
-    return categoriesById;
+    return refs;
   }
   for (const surface of taxonomy.surfaces) {
     for (const category of surface.categories) {
-      categoriesById.set(maturityCategoryId(surface.id, category.id), {
+      if (!category.id) {
+        continue;
+      }
+      refs.set(maturityCategoryId(surface.id, category), {
         surfaceId: surface.id,
-        name: category.name,
+        categoryName: category.name,
       });
     }
   }
-  return categoriesById;
+  return refs;
 }
 
 function pathExists(repoRoot: string | undefined, relativePath: string) {
@@ -311,6 +329,37 @@ function pathExists(repoRoot: string | undefined, relativePath: string) {
     return false;
   }
   return repoRoot ? fs.existsSync(path.join(repoRoot, relativePath)) : true;
+}
+
+function scenarioCoverageIds(scenario: QaSeedScenarioWithSource) {
+  return [...(scenario.coverage?.primary ?? []), ...(scenario.coverage?.secondary ?? [])];
+}
+
+function collectScenarioRefsByCoverageId(params: {
+  scenarios: readonly QaSeedScenarioWithSource[];
+  role: "primary" | "secondary";
+}) {
+  const refsByCoverageId = new Map<string, Set<string>>();
+  for (const scenario of params.scenarios) {
+    const coverageIds =
+      params.role === "primary"
+        ? (scenario.coverage?.primary ?? [])
+        : (scenario.coverage?.secondary ?? []);
+    for (const coverageId of coverageIds) {
+      const refs = refsByCoverageId.get(coverageId) ?? new Set<string>();
+      refs.add(scenario.sourcePath);
+      refsByCoverageId.set(coverageId, refs);
+    }
+  }
+  return refsByCoverageId;
+}
+
+function uniqueSorted(values: Iterable<string>) {
+  return [...new Set(values)].toSorted((left, right) => left.localeCompare(right));
+}
+
+function percent(part: number, total: number) {
+  return total === 0 ? 0 : Number(((part / total) * 100).toFixed(1));
 }
 
 export function buildQaScorecardTaxonomyReport(params: {
@@ -328,14 +377,13 @@ export function buildQaScorecardTaxonomyReport(params: {
     } satisfies QaScorecardValidationIssue;
     return {
       taxonomyPath: params.taxonomyPath ?? null,
-      taxonomyId: null,
       title: null,
       taxonomy: null,
       profileCount: 0,
       profiles: [],
       categoryCount: 0,
-      fulfilledCategoryCount: 0,
       requiredCategoryCount: 0,
+      fulfilledCategoryCount: 0,
       taxonomyFulfillmentPercent: 0,
       evidenceRefCount: 0,
       mappedCoverageIdCount: 0,
@@ -348,269 +396,289 @@ export function buildQaScorecardTaxonomyReport(params: {
     };
   }
 
-  const qaScenarioRefsByCoverageId = new Map<string, Set<string>>();
-  const primaryScenarioRefsByCoverageId = new Map<string, Set<string>>();
-  const secondaryScenarioRefsByCoverageId = new Map<string, Set<string>>();
-  const addScenarioCoverageRef = (
-    map: Map<string, Set<string>>,
-    coverageId: string,
-    sourcePath: string,
-  ) => {
-    const refs = map.get(coverageId) ?? new Set<string>();
-    refs.add(sourcePath);
-    map.set(coverageId, refs);
-  };
-  for (const scenario of params.scenarios) {
-    for (const coverageId of scenario.coverage?.primary ?? []) {
-      addScenarioCoverageRef(primaryScenarioRefsByCoverageId, coverageId, scenario.sourcePath);
-      addScenarioCoverageRef(qaScenarioRefsByCoverageId, coverageId, scenario.sourcePath);
-    }
-    for (const coverageId of scenario.coverage?.secondary ?? []) {
-      addScenarioCoverageRef(secondaryScenarioRefsByCoverageId, coverageId, scenario.sourcePath);
-      addScenarioCoverageRef(qaScenarioRefsByCoverageId, coverageId, scenario.sourcePath);
-    }
-  }
-
+  const primaryScenarioRefsByCoverageId = collectScenarioRefsByCoverageId({
+    scenarios: params.scenarios,
+    role: "primary",
+  });
+  const secondaryScenarioRefsByCoverageId = collectScenarioRefsByCoverageId({
+    scenarios: params.scenarios,
+    role: "secondary",
+  });
+  const scenariosByRef = new Map(
+    params.scenarios.map((scenario) => [scenario.sourcePath, scenario] as const),
+  );
   const issues: QaScorecardValidationIssue[] = [];
   const categories: QaScorecardCategoryMappingReport[] = [];
   const mappedCoverageIds = new Set<string>();
-  const evidenceRefs = new Set<string>();
   const categoryIds = new Set(params.taxonomy.categories.map((category) => category.id));
-  const maturityTaxonomy = readQaMaturityTaxonomy(
-    params.repoRoot,
-    params.taxonomy.taxonomy.sourcePath,
-  );
-  const maturityCategoriesById = buildMaturityCategoriesById(maturityTaxonomy);
+  const maturityTaxonomy = readQaMaturityTaxonomy(params.repoRoot);
+  const maturityCategoryRefs = buildMaturityCategoryRefs(maturityTaxonomy);
   const profileCategoryIdsByCategoryId = new Map<string, Set<string>>();
-  const requiredCategoryIds = new Set<string>();
-  for (const profile of params.taxonomy.profiles) {
+
+  const profiles = params.taxonomy.profiles.map((profile) => {
     for (const categoryId of profile.categoryIds) {
-      requiredCategoryIds.add(categoryId);
       if (!categoryIds.has(categoryId)) {
         issues.push({
           code: "profile-category-ref-not-found",
           severity: "warning",
           ref: categoryId,
-          message: `${profile.id} profile references missing executable scorecard category ${categoryId}`,
+          message: `${profile.id} profile references missing scorecard category ${categoryId}`,
         });
         continue;
       }
-      const categoryProfileIds =
-        profileCategoryIdsByCategoryId.get(categoryId) ?? new Set<string>();
-      categoryProfileIds.add(profile.id);
-      profileCategoryIdsByCategoryId.set(categoryId, categoryProfileIds);
+      const profileIds = profileCategoryIdsByCategoryId.get(categoryId) ?? new Set<string>();
+      profileIds.add(profile.id);
+      profileCategoryIdsByCategoryId.set(categoryId, profileIds);
     }
-  }
 
-  if (!pathExists(params.repoRoot, params.taxonomy.taxonomy.sourcePath) || !maturityTaxonomy) {
+    return {
+      id: profile.id,
+      categoryIds: profile.categoryIds.filter((categoryId) => categoryIds.has(categoryId)),
+    };
+  });
+
+  if (!pathExists(params.repoRoot, QA_MATURITY_TAXONOMY_PATH) || !maturityTaxonomy) {
     issues.push({
       code: "taxonomy-ref-not-found",
       severity: "warning",
-      ref: params.taxonomy.taxonomy.sourcePath,
-      message: `Scorecard executable mapping references missing maturity taxonomy ${params.taxonomy.taxonomy.sourcePath}`,
+      ref: QA_MATURITY_TAXONOMY_PATH,
+      message: `Scorecard mapping references missing maturity taxonomy ${QA_MATURITY_TAXONOMY_PATH}`,
     });
   }
 
-  const mappingStatusByCategoryId = new Map<
-    string,
-    QaScorecardCategoryMappingReport["mappingStatus"]
-  >();
-
   for (const category of params.taxonomy.categories) {
+    const evidenceReports: QaScorecardEvidenceReport[] = [];
     const missingCoverageIds: string[] = [];
-    const missingPrimaryEvidenceCoverageIds: string[] = [];
-    const categoryEvidenceByPath = new Map<
-      string,
-      {
-        kind: "qa-scenario";
-        path: string;
-        coverageIds: Set<string>;
-        role: "primary" | "secondary";
-      }
-    >();
+    const missingEvidenceRefs: string[] = [];
+    const categoryCoverageIds = new Set<string>();
+    const categoryScenarioRefs = new Set<string>();
+    const coverageIdsWithFulfillment = new Set<string>();
+    const coverageIdsWithResolvedEvidence = new Set<string>();
+    const coverageIdsWithSecondaryEvidence = new Set<string>();
+    const partialCoverageIds = new Set<string>();
     const membershipProfileIds =
       profileCategoryIdsByCategoryId.get(category.id) ?? new Set<string>();
-    const sortedMembershipProfileIds = [...membershipProfileIds].toSorted();
-    const maturityCategory = maturityCategoriesById.get(category.id);
-    const taxonomyCategoryExists = Boolean(maturityCategory);
+    const sortedMembershipProfileIds = uniqueSorted(membershipProfileIds);
+    const maturityRef = maturityCategoryRefs.get(category.id);
 
-    if (maturityTaxonomy && !taxonomyCategoryExists) {
+    if (maturityTaxonomy && !maturityRef) {
       issues.push({
         code: "taxonomy-category-ref-not-found",
         severity: "warning",
         categoryId: category.id,
         ref: category.id,
-        message: `${category.id} references missing maturity taxonomy category id`,
+        message: `${category.id} does not match a maturity taxonomy category`,
       });
     }
 
-    const addCategoryEvidence = (
-      coverageId: string,
-      sourcePath: string,
-      role: "primary" | "secondary",
-    ) => {
-      evidenceRefs.add(`qa-scenario:${sourcePath}`);
-      const existing = categoryEvidenceByPath.get(sourcePath);
-      if (existing) {
-        existing.coverageIds.add(coverageId);
-        if (role === "primary") {
-          existing.role = "primary";
-        }
-        return;
-      }
-      categoryEvidenceByPath.set(sourcePath, {
-        kind: "qa-scenario",
-        path: sourcePath,
-        coverageIds: new Set([coverageId]),
-        role,
-      });
-    };
+    for (const evidence of category.evidence) {
+      categoryCoverageIds.add(evidence.coverageId);
 
-    for (const coverageId of category.coverageIds) {
-      mappedCoverageIds.add(coverageId);
-      const primaryRefs = primaryScenarioRefsByCoverageId.get(coverageId) ?? new Set<string>();
-      const secondaryRefs = secondaryScenarioRefsByCoverageId.get(coverageId) ?? new Set<string>();
-      if (primaryRefs.size === 0 && secondaryRefs.size === 0) {
-        missingCoverageIds.push(coverageId);
-        issues.push({
-          code: "coverage-id-not-found",
-          severity: "warning",
-          categoryId: category.id,
-          ref: coverageId,
-          message: `${category.id} maps coverage ID ${coverageId} with no QA scenario evidence`,
+      if (evidence.kind === "qa-scenario") {
+        if (evidence.path) {
+          const scenario = scenariosByRef.get(evidence.path);
+          if (!scenario) {
+            missingEvidenceRefs.push(evidence.path);
+            issues.push({
+              code: "evidence-ref-not-found",
+              severity: "warning",
+              categoryId: category.id,
+              ref: evidence.path,
+              message: `${category.id} references missing QA scenario evidence ${evidence.path}`,
+            });
+            continue;
+          }
+
+          const primaryCoverage = scenario.coverage?.primary ?? [];
+          const secondaryCoverage = scenario.coverage?.secondary ?? [];
+          const isPrimary = primaryCoverage.includes(evidence.coverageId);
+          const isSecondary = secondaryCoverage.includes(evidence.coverageId);
+          if (!isPrimary && !isSecondary) {
+            partialCoverageIds.add(evidence.coverageId);
+            issues.push({
+              code: "evidence-ref-coverage-mismatch",
+              severity: "warning",
+              categoryId: category.id,
+              ref: evidence.path,
+              message: `${category.id} maps ${evidence.path}, but that QA scenario does not declare coverage id ${evidence.coverageId}`,
+            });
+            continue;
+          }
+
+          coverageIdsWithResolvedEvidence.add(evidence.coverageId);
+          categoryScenarioRefs.add(evidence.path);
+          if (isPrimary) {
+            coverageIdsWithFulfillment.add(evidence.coverageId);
+            mappedCoverageIds.add(evidence.coverageId);
+          } else {
+            coverageIdsWithSecondaryEvidence.add(evidence.coverageId);
+          }
+          evidenceReports.push({
+            coverageId: evidence.coverageId,
+            kind: evidence.kind,
+            path: evidence.path,
+            role: isPrimary ? "primary" : "secondary",
+            scenarioRefs: [evidence.path],
+          });
+          continue;
+        }
+
+        const primaryRefs = primaryScenarioRefsByCoverageId.get(evidence.coverageId) ?? new Set();
+        const secondaryRefs =
+          secondaryScenarioRefsByCoverageId.get(evidence.coverageId) ?? new Set();
+        const scenarioRefs = uniqueSorted([...primaryRefs, ...secondaryRefs]);
+        if (scenarioRefs.length === 0) {
+          missingCoverageIds.push(evidence.coverageId);
+          issues.push({
+            code: "coverage-id-not-found",
+            severity: "warning",
+            categoryId: category.id,
+            ref: evidence.coverageId,
+            message: `${category.id} maps missing QA scenario coverage id ${evidence.coverageId}`,
+          });
+          continue;
+        }
+
+        coverageIdsWithResolvedEvidence.add(evidence.coverageId);
+        if (primaryRefs.size > 0) {
+          coverageIdsWithFulfillment.add(evidence.coverageId);
+          mappedCoverageIds.add(evidence.coverageId);
+          for (const scenarioRef of primaryRefs) {
+            categoryScenarioRefs.add(scenarioRef);
+          }
+        } else {
+          coverageIdsWithSecondaryEvidence.add(evidence.coverageId);
+        }
+
+        evidenceReports.push({
+          coverageId: evidence.coverageId,
+          kind: evidence.kind,
+          path: null,
+          role: primaryRefs.size > 0 ? "primary" : "secondary",
+          scenarioRefs,
         });
         continue;
       }
-      if (primaryRefs.size === 0) {
-        missingPrimaryEvidenceCoverageIds.push(coverageId);
+
+      if (!evidence.path || !pathExists(params.repoRoot, evidence.path)) {
+        const ref = evidence.path ?? `${evidence.kind}:${evidence.coverageId}`;
+        missingEvidenceRefs.push(ref);
+        issues.push({
+          code: "evidence-ref-not-found",
+          severity: "warning",
+          categoryId: category.id,
+          ref,
+          message: `${category.id} references missing ${evidence.kind} evidence ${ref}`,
+        });
+        continue;
+      }
+
+      mappedCoverageIds.add(evidence.coverageId);
+      coverageIdsWithFulfillment.add(evidence.coverageId);
+      coverageIdsWithResolvedEvidence.add(evidence.coverageId);
+      evidenceReports.push({
+        coverageId: evidence.coverageId,
+        kind: evidence.kind,
+        path: evidence.path,
+        role: "explicit",
+        scenarioRefs: [],
+      });
+    }
+
+    for (const coverageId of categoryCoverageIds) {
+      if (
+        coverageIdsWithResolvedEvidence.has(coverageId) &&
+        coverageIdsWithSecondaryEvidence.has(coverageId) &&
+        !coverageIdsWithFulfillment.has(coverageId)
+      ) {
+        partialCoverageIds.add(coverageId);
         issues.push({
           code: "coverage-id-missing-primary-evidence",
           severity: "warning",
           categoryId: category.id,
           ref: coverageId,
-          message: `${category.id} maps coverage ID ${coverageId} with secondary-only QA scenario evidence`,
+          message: `${category.id} maps ${coverageId}, but QA scenarios only list it as secondary coverage`,
         });
-      }
-      for (const sourcePath of primaryRefs) {
-        addCategoryEvidence(coverageId, sourcePath, "primary");
-      }
-      for (const sourcePath of secondaryRefs) {
-        addCategoryEvidence(coverageId, sourcePath, "secondary");
       }
     }
 
-    if (membershipProfileIds.size === 0 && category.coverageIds.length > 0) {
+    if (membershipProfileIds.size === 0 && category.evidence.length > 0) {
       issues.push({
         code: "mapped-category-missing-profile-membership",
         severity: "warning",
         categoryId: category.id,
-        message: `${category.id} maps coverage IDs but is not selected by any scorecard profile`,
+        message: `${category.id} maps evidence but is not selected by any profile`,
       });
-    }
-
-    if (membershipProfileIds.size === 0 && category.coverageIds.length === 0) {
+    } else if (membershipProfileIds.size > 0 && category.evidence.length === 0) {
       issues.push({
-        code: "category-without-profile-or-coverage",
+        code: "profile-category-missing-evidence",
         severity: "warning",
         categoryId: category.id,
-        message: `${category.id} has no scorecard profile membership or coverage IDs`,
+        message: `${category.id} is selected by a runnable profile but has no evidence`,
       });
     }
 
     const mappingStatus =
-      category.coverageIds.length === 0 || !taxonomyCategoryExists
+      category.evidence.length === 0
         ? "missing"
-        : missingCoverageIds.length > 0 || missingPrimaryEvidenceCoverageIds.length > 0
+        : missingCoverageIds.length > 0 ||
+            missingEvidenceRefs.length > 0 ||
+            partialCoverageIds.size > 0
           ? "partial"
           : "mapped";
-    mappingStatusByCategoryId.set(category.id, mappingStatus);
 
-    if (membershipProfileIds.size > 0 && mappingStatus !== "mapped") {
-      issues.push({
-        code: "profile-category-missing-coverage-mapping",
-        severity: "warning",
-        categoryId: category.id,
-        message: `${category.id} is selected by scorecard profile(s) ${sortedMembershipProfileIds.join(", ")} but has incomplete coverage mapping`,
-      });
-    }
-
-    const evidence = [...categoryEvidenceByPath.values()]
-      .map((ref) => ({
-        kind: ref.kind,
-        path: ref.path,
-        coverageIds: [...ref.coverageIds].toSorted(),
-        role: ref.role,
-      }))
-      .toSorted((left, right) => left.path.localeCompare(right.path));
     categories.push({
       id: category.id,
-      taxonomySurfaceId: maturityCategory?.surfaceId ?? category.id.split(".")[0] ?? "unknown",
-      taxonomyCategoryName: maturityCategory?.name ?? "unknown",
+      taxonomySurfaceId: maturityRef?.surfaceId ?? category.id.split(".")[0] ?? category.id,
+      taxonomyCategoryName: maturityRef?.categoryName ?? category.id,
       mappingStatus,
       profiles: sortedMembershipProfileIds,
-      coverageIds: [...category.coverageIds],
-      evidence,
-      missingCoverageIds,
-      missingPrimaryEvidenceCoverageIds,
+      coverageIds: uniqueSorted(categoryCoverageIds),
+      evidence: evidenceReports.toSorted((left, right) =>
+        `${left.coverageId}:${left.kind}:${left.path ?? ""}`.localeCompare(
+          `${right.coverageId}:${right.kind}:${right.path ?? ""}`,
+        ),
+      ),
+      scenarioRefs: uniqueSorted(categoryScenarioRefs),
+      missingCoverageIds: uniqueSorted(missingCoverageIds),
+      missingEvidenceRefs: uniqueSorted(missingEvidenceRefs),
     });
   }
 
-  const profiles = params.taxonomy.profiles.map((profile) => {
-    const knownCategoryIds = profile.categoryIds.filter((categoryId) =>
-      categoryIds.has(categoryId),
-    );
-    const fulfilledCategoryCount = knownCategoryIds.filter(
-      (categoryId) => mappingStatusByCategoryId.get(categoryId) === "mapped",
-    ).length;
-    const requiredCategoryCount = profile.categoryIds.length;
-    return {
-      id: profile.id,
-      categoryIds: knownCategoryIds,
-      fulfilledCategoryCount,
-      requiredCategoryCount,
-      fulfillmentPercent:
-        requiredCategoryCount === 0
-          ? 100
-          : Number(((fulfilledCategoryCount / requiredCategoryCount) * 100).toFixed(1)),
-    };
-  });
-  const fulfilledCategoryCount = [...requiredCategoryIds].filter(
-    (categoryId) => mappingStatusByCategoryId.get(categoryId) === "mapped",
+  const sortedCategories = categories.toSorted((left, right) => left.id.localeCompare(right.id));
+  const requiredCategories = sortedCategories.filter((category) => category.profiles.length > 0);
+  const fulfilledCategoryCount = requiredCategories.filter(
+    (category) => category.mappingStatus === "mapped",
   ).length;
-  const requiredCategoryCount = requiredCategoryIds.size;
-  const taxonomyFulfillmentPercent =
-    requiredCategoryCount === 0
-      ? 100
-      : Number(((fulfilledCategoryCount / requiredCategoryCount) * 100).toFixed(1));
-  const allCoverageIds = [...qaScenarioRefsByCoverageId.keys()].toSorted();
+  const allScenarioCoverageIds = params.scenarios.flatMap(scenarioCoverageIds);
+  const allCoverageIds = uniqueSorted([...allScenarioCoverageIds, ...mappedCoverageIds]);
   const unmappedCoverageIds = allCoverageIds.filter(
     (coverageId) => !mappedCoverageIds.has(coverageId),
   );
-  const totalCoverageIds = new Set([...allCoverageIds, ...mappedCoverageIds]).size;
-  const mappedCoverageIdPercent =
-    totalCoverageIds === 0
-      ? 0
-      : Number(((mappedCoverageIds.size / totalCoverageIds) * 100).toFixed(1));
 
   return {
     taxonomyPath: params.taxonomyPath ?? QA_SCORECARD_TAXONOMY_PATH,
-    taxonomyId: params.taxonomy.id,
     title: params.taxonomy.title,
-    taxonomy: params.taxonomy.taxonomy,
+    taxonomy: {
+      sourcePath: QA_MATURITY_TAXONOMY_PATH,
+    },
     profileCount: params.taxonomy.profiles.length,
     profiles,
     categoryCount: params.taxonomy.categories.length,
+    requiredCategoryCount: requiredCategories.length,
     fulfilledCategoryCount,
-    requiredCategoryCount,
-    taxonomyFulfillmentPercent,
-    evidenceRefCount: evidenceRefs.size,
+    taxonomyFulfillmentPercent: percent(fulfilledCategoryCount, requiredCategories.length),
+    evidenceRefCount: sortedCategories.reduce(
+      (count, category) => count + category.evidence.length,
+      0,
+    ),
     mappedCoverageIdCount: mappedCoverageIds.size,
-    mappedCoverageIdPercent,
+    mappedCoverageIdPercent: percent(mappedCoverageIds.size, allCoverageIds.length),
     unmappedCoverageIdCount: unmappedCoverageIds.length,
     unmappedCoverageIds,
     validationIssueCount: issues.length,
     validationIssues: issues,
-    categories: categories.toSorted((left, right) => left.id.localeCompare(right.id)),
+    categories: sortedCategories,
   };
 }
 

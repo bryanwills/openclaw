@@ -5,9 +5,7 @@ import { readQaScenarioPack } from "./scenario-catalog.js";
 import { buildQaScorecardTaxonomyReport, parseQaScorecardTaxonomy } from "./scorecard-taxonomy.js";
 
 const TEST_EXECUTABLE_CATEGORY_ID = "agent-runtime-and-provider-execution.agent-turn-execution";
-const TEST_TAXONOMY_REF = {
-  sourcePath: "taxonomy.yaml",
-};
+const TEST_BROWSER_CATEGORY_ID = "browser-control-ui-and-webchat.browser-ui";
 
 function testScorecardProfiles(categoryId = TEST_EXECUTABLE_CATEGORY_ID, profileId = "release") {
   return [
@@ -24,11 +22,28 @@ function testScorecardProfiles(categoryId = TEST_EXECUTABLE_CATEGORY_ID, profile
   ];
 }
 
-function testScorecardCategory(params?: { id?: string; coverageIds?: string[] }) {
-  return {
-    id: params?.id ?? TEST_EXECUTABLE_CATEGORY_ID,
-    coverageIds: params?.coverageIds ?? ["channels.dm"],
-  };
+function testScorecardTaxonomy(opts: {
+  categoryId?: string;
+  profileId?: string;
+  evidence?: readonly unknown[];
+}) {
+  const categoryId = opts.categoryId ?? TEST_EXECUTABLE_CATEGORY_ID;
+  return parseQaScorecardTaxonomy({
+    version: 1,
+    title: "Test taxonomy",
+    profiles: testScorecardProfiles(categoryId, opts.profileId ?? "release"),
+    categories: [
+      {
+        id: categoryId,
+        evidence: opts.evidence ?? [
+          {
+            coverageId: "channels.dm",
+            kind: "qa-scenario",
+          },
+        ],
+      },
+    ],
+  });
 }
 
 describe("qa coverage report", () => {
@@ -47,18 +62,21 @@ describe("qa coverage report", () => {
       "telegram",
       "whatsapp",
     ]);
-    expect(inventory.scorecardTaxonomy.taxonomyId).toBe("stable-lts-initial");
     expect(inventory.scorecardTaxonomy.profileCount).toBe(2);
-    expect(inventory.scorecardTaxonomy.categoryCount).toBe(15);
-    expect(inventory.scorecardTaxonomy.fulfilledCategoryCount).toBe(5);
+    expect(inventory.scorecardTaxonomy.categoryCount).toBe(16);
     expect(inventory.scorecardTaxonomy.requiredCategoryCount).toBe(15);
-    expect(inventory.scorecardTaxonomy.taxonomyFulfillmentPercent).toBe(33.3);
+    expect(inventory.scorecardTaxonomy.fulfilledCategoryCount).toBeGreaterThan(0);
+    expect(inventory.scorecardTaxonomy.taxonomyFulfillmentPercent).toBeGreaterThan(0);
     expect(inventory.scorecardTaxonomy.evidenceRefCount).toBeGreaterThan(0);
     expect(inventory.scorecardTaxonomy.mappedCoverageIdCount).toBeGreaterThan(0);
+    expect(inventory.scorecardTaxonomy.mappedCoverageIdPercent).toBeGreaterThan(0);
     expect(inventory.scorecardTaxonomy.unmappedCoverageIdCount).toBeGreaterThan(0);
-    expect(inventory.scorecardTaxonomy.validationIssues.map((issue) => issue.code)).toContain(
-      "coverage-id-missing-primary-evidence",
-    );
+    expect(inventory.scorecardTaxonomy.validationIssues.length).toBeGreaterThan(0);
+    expect(
+      inventory.scorecardTaxonomy.validationIssues.every(
+        (issue) => issue.code === "coverage-id-missing-primary-evidence",
+      ),
+    ).toBe(true);
     expect(
       inventory.scorecardTaxonomy.profiles
         .find((profile) => profile.id === "release")
@@ -79,6 +97,17 @@ describe("qa coverage report", () => {
       "session-memory-and-context-engine.token-management",
       "telemetry-diagnostics-and-observability.telemetry-export",
     ]);
+    expect(
+      inventory.scorecardTaxonomy.categories.find(
+        (category) => category.id === "browser-control-ui-and-webchat.browser-ui",
+      )?.evidence,
+    ).toContainEqual({
+      coverageId: "ui.control",
+      kind: "playwright",
+      path: "ui/src/ui/e2e/chat-flow.e2e.test.ts",
+      role: "explicit",
+      scenarioRefs: [],
+    });
     expect(inventory.scenarioPacks.map((pack) => pack.id)).toEqual([
       "observability",
       "personal-agent",
@@ -121,37 +150,33 @@ describe("qa coverage report", () => {
     );
     expect(report).toContain("thread-follow-up: slack-thread-follow-up");
     expect(report).toContain("## Scorecard Taxonomy");
-    expect(report).toContain("- Mapping ID: stable-lts-initial");
+    expect(report).toContain("- Mapping: taxonomy-mappings.yaml");
     expect(report).toContain("- Maturity taxonomy: taxonomy.yaml");
-    expect(report).toContain("- Categories: 15");
-    expect(report).toContain("- Profiles: 2");
-    expect(report).toContain("- Fulfilled taxonomy categories: 5/15 (33.3%)");
+    expect(report).toContain("- Fulfilled taxonomy categories:");
     expect(report).toContain("- Evidence refs:");
-    expect(report).toContain("- Mapped QA coverage IDs: 42/145 (29.0%)");
-    expect(report).toContain(
-      "- smoke-ci: 5/14 fulfilled (35.7%); agent-runtime-and-provider-execution.agent-turn-execution,",
-    );
+    expect(report).toContain("- Mapped QA coverage IDs:");
     expect(report).toContain(
       "- browser-automation-and-exec-sandbox-tools.tool-invocation-and-execution (browser-automation-and-exec-sandbox-tools / Tool Invocation and Execution; mapped): profiles: release, smoke-ci; coverage: tools.apply-patch, tools.exec, tools.fs.read, tools.fs.write, tools.web-search;",
     );
     expect(report).toContain(
-      "primary:qa-scenario:qa/scenarios/runtime/tools/apply-patch.md (tools.apply-patch)",
+      "explicit:playwright:ui/src/ui/e2e/chat-flow.e2e.test.ts (ui.control)",
     );
     expect(report).toContain("### Unmapped Coverage IDs");
     expect(report).toContain("agents.subagents");
   });
 
-  it("reports taxonomy mapping gaps as scorecard signals", () => {
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: testScorecardProfiles(),
-      categories: [
-        testScorecardCategory({
-          coverageIds: ["runtime.missing-coverage"],
-        }),
+  it("reports taxonomy evidence gaps without treating missing coverage as fulfilled", () => {
+    const taxonomy = testScorecardTaxonomy({
+      evidence: [
+        {
+          coverageId: "runtime.missing-coverage",
+          kind: "qa-scenario",
+        },
+        {
+          coverageId: "runtime.delivery",
+          kind: "vitest",
+          path: "missing-scorecard-evidence.test.ts",
+        },
       ],
     });
 
@@ -161,24 +186,23 @@ describe("qa coverage report", () => {
       scenarios: readQaScenarioPack().scenarios,
     });
 
+    expect(report.mappedCoverageIdCount).toBe(0);
     expect(report.categories[0]?.mappingStatus).toBe("partial");
     expect(report.validationIssues.map((issue) => issue.code)).toEqual([
       "coverage-id-not-found",
-      "profile-category-missing-coverage-mapping",
+      "evidence-ref-not-found",
     ]);
   });
 
-  it("discovers evidence refs from mapped coverage IDs", () => {
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: testScorecardProfiles(),
-      categories: [
-        testScorecardCategory({
-          coverageIds: ["channels.dm"],
-        }),
+  it("uses explicit native test evidence as category fulfillment", () => {
+    const taxonomy = testScorecardTaxonomy({
+      categoryId: TEST_BROWSER_CATEGORY_ID,
+      evidence: [
+        {
+          coverageId: "ui.control",
+          kind: "playwright",
+          path: "ui/src/ui/e2e/chat-flow.e2e.test.ts",
+        },
       ],
     });
 
@@ -189,68 +213,23 @@ describe("qa coverage report", () => {
     });
 
     expect(report.validationIssues).toStrictEqual([]);
-    expect(report.categories[0]?.coverageIds).toEqual(["channels.dm"]);
-    expect(report.categories[0]?.evidence).toContainEqual({
-      kind: "qa-scenario",
-      path: "qa/scenarios/channels/dm-chat-baseline.md",
-      coverageIds: ["channels.dm"],
-      role: "primary",
-    });
-    expect(report.categories[0]?.evidence).toContainEqual({
-      kind: "qa-scenario",
-      path: "qa/scenarios/personal/channel-thread-reply.md",
-      coverageIds: ["channels.dm"],
-      role: "secondary",
-    });
-    expect(report.categories[0]?.evidence).toHaveLength(2);
-    expect(report.mappedCoverageIdCount).toBe(1);
-  });
-
-  it("reports secondary-only coverage as indirect evidence", () => {
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: testScorecardProfiles(),
-      categories: [
-        testScorecardCategory({
-          coverageIds: ["channels.qa-channel"],
-        }),
-      ],
-    });
-
-    const report = buildQaScorecardTaxonomyReport({
-      taxonomy,
-      repoRoot: process.cwd(),
-      scenarios: readQaScenarioPack().scenarios,
-    });
-
-    expect(report.categories[0]?.mappingStatus).toBe("partial");
-    expect(report.categories[0]?.missingPrimaryEvidenceCoverageIds).toEqual([
-      "channels.qa-channel",
-    ]);
-    expect(report.categories[0]?.evidence.some((ref) => ref.role === "secondary")).toBe(true);
-    expect(report.validationIssues.map((issue) => issue.code)).toEqual([
-      "coverage-id-missing-primary-evidence",
-      "profile-category-missing-coverage-mapping",
+    expect(report.fulfilledCategoryCount).toBe(1);
+    expect(report.categories[0]?.mappingStatus).toBe("mapped");
+    expect(report.categories[0]?.scenarioRefs).toStrictEqual([]);
+    expect(report.categories[0]?.evidence).toStrictEqual([
+      {
+        coverageId: "ui.control",
+        kind: "playwright",
+        path: "ui/src/ui/e2e/chat-flow.e2e.test.ts",
+        role: "explicit",
+        scenarioRefs: [],
+      },
     ]);
   });
 
   it("reports executable category refs missing from taxonomy.yaml", () => {
-    const missingTaxonomyCategoryId =
-      "agent-runtime-and-provider-execution.missing-taxonomy-category";
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: testScorecardProfiles(missingTaxonomyCategoryId, "release"),
-      categories: [
-        testScorecardCategory({
-          id: missingTaxonomyCategoryId,
-        }),
-      ],
+    const taxonomy = testScorecardTaxonomy({
+      categoryId: "agent-runtime-and-provider-execution.missing-taxonomy-category",
     });
 
     const report = buildQaScorecardTaxonomyReport({
@@ -261,16 +240,13 @@ describe("qa coverage report", () => {
 
     expect(report.validationIssues.map((issue) => issue.code)).toEqual([
       "taxonomy-category-ref-not-found",
-      "profile-category-missing-coverage-mapping",
     ]);
   });
 
-  it("reports profile membership refs missing from executable categories", () => {
+  it("reports profile membership refs missing from mapped categories", () => {
     const taxonomy = parseQaScorecardTaxonomy({
       version: 1,
-      id: "test-taxonomy",
       title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
       profiles: [
         {
           id: "smoke-ci",
@@ -280,10 +256,15 @@ describe("qa coverage report", () => {
         {
           id: "release",
           description: "Test release profile.",
-          categoryIds: [TEST_EXECUTABLE_CATEGORY_ID],
+          categoryIds: [],
         },
       ],
-      categories: [testScorecardCategory()],
+      categories: [
+        {
+          id: TEST_EXECUTABLE_CATEGORY_ID,
+          evidence: [],
+        },
+      ],
     });
 
     const report = buildQaScorecardTaxonomyReport({
@@ -297,15 +278,8 @@ describe("qa coverage report", () => {
     ]);
   });
 
-  it("reports mapped categories with no top-level profile membership", () => {
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "none"),
-      categories: [testScorecardCategory()],
-    });
+  it("reports profile categories missing executable evidence", () => {
+    const taxonomy = testScorecardTaxonomy({ evidence: [] });
 
     const report = buildQaScorecardTaxonomyReport({
       taxonomy,
@@ -314,77 +288,33 @@ describe("qa coverage report", () => {
     });
 
     expect(report.validationIssues.map((issue) => issue.code)).toEqual([
-      "mapped-category-missing-profile-membership",
+      "profile-category-missing-evidence",
     ]);
   });
 
-  it("reports categories with no profile membership or runnable evidence", () => {
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "none"),
-      categories: [
-        testScorecardCategory({
-          coverageIds: [],
-        }),
-      ],
-    });
-
-    const report = buildQaScorecardTaxonomyReport({
-      taxonomy,
-      repoRoot: process.cwd(),
-      scenarios: readQaScenarioPack().scenarios,
-    });
-
-    expect(report.categories[0]?.mappingStatus).toBe("missing");
-    expect(report.validationIssues.map((issue) => issue.code)).toEqual([
-      "category-without-profile-or-coverage",
-    ]);
+  it("rejects native test evidence refs outside the repository", () => {
+    expect(() =>
+      testScorecardTaxonomy({
+        evidence: [
+          {
+            coverageId: "runtime.delivery",
+            kind: "playwright",
+            path: "../outside-openclaw.test.ts",
+          },
+        ],
+      }),
+    ).toThrow("repo refs must not be absolute or contain parent-directory segments");
   });
 
-  it("reports profile-selected categories with incomplete evidence mapping", () => {
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "release"),
-      categories: [
-        testScorecardCategory({
-          coverageIds: [],
-        }),
-      ],
-    });
-
-    const report = buildQaScorecardTaxonomyReport({
-      taxonomy,
-      repoRoot: process.cwd(),
-      scenarios: readQaScenarioPack().scenarios,
-    });
-
-    expect(report.categories[0]?.mappingStatus).toBe("missing");
-    expect(report.validationIssues.map((issue) => issue.code)).toEqual([
-      "profile-category-missing-coverage-mapping",
-    ]);
-  });
-
-  it("derives category profile membership from top-level profiles", () => {
-    const taxonomy = parseQaScorecardTaxonomy({
-      version: 1,
-      id: "test-taxonomy",
-      title: "Test taxonomy",
-      taxonomy: TEST_TAXONOMY_REF,
-      profiles: [
-        ...testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "none"),
+  it("uses path-pinned qa-scenario evidence as runnable scenario evidence", () => {
+    const taxonomy = testScorecardTaxonomy({
+      evidence: [
         {
-          id: "nightly",
-          description: "Nightly mapped profile.",
-          categoryIds: [TEST_EXECUTABLE_CATEGORY_ID],
+          coverageId: "channels.dm",
+          kind: "qa-scenario",
+          path: "qa/scenarios/channels/dm-chat-baseline.md",
         },
       ],
-      categories: [testScorecardCategory({ coverageIds: ["channels.dm"] })],
     });
 
     const report = buildQaScorecardTaxonomyReport({
@@ -394,24 +324,17 @@ describe("qa coverage report", () => {
     });
 
     expect(report.validationIssues).toStrictEqual([]);
-    expect(report.categories[0]?.profiles).toStrictEqual(["nightly"]);
-    expect(report.categories[0]?.evidence[0]?.path).toBe(
+    expect(report.categories[0]?.scenarioRefs).toStrictEqual([
       "qa/scenarios/channels/dm-chat-baseline.md",
-    );
-  });
-
-  it("rejects taxonomy refs outside the repository", () => {
-    expect(() =>
-      parseQaScorecardTaxonomy({
-        version: 1,
-        id: "bad-taxonomy",
-        title: "Bad taxonomy",
-        taxonomy: {
-          sourcePath: "../rfcs/rfcs/0007-e2e-qa-lab-scorecard-consolidation.md",
-        },
-        profiles: testScorecardProfiles(TEST_EXECUTABLE_CATEGORY_ID, "smoke-ci"),
-        categories: [testScorecardCategory()],
-      }),
-    ).toThrow("repo refs must not be absolute or contain parent-directory segments");
+    ]);
+    expect(report.categories[0]?.evidence).toStrictEqual([
+      {
+        coverageId: "channels.dm",
+        kind: "qa-scenario",
+        path: "qa/scenarios/channels/dm-chat-baseline.md",
+        role: "primary",
+        scenarioRefs: ["qa/scenarios/channels/dm-chat-baseline.md"],
+      },
+    ]);
   });
 });

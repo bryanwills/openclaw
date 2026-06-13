@@ -319,28 +319,24 @@ function pushScenarioPackLines(lines: string[], packs: readonly QaCoverageScenar
 function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomyReport) {
   lines.push("## Scorecard Taxonomy", "");
   lines.push(`- Mapping: ${report.taxonomyPath ?? "missing"}`);
-  lines.push(`- Mapping ID: ${report.taxonomyId ?? "missing"}`);
   lines.push(`- Maturity taxonomy: ${report.taxonomy?.sourcePath ?? "missing"}`);
-  const totalCoverageIds = report.mappedCoverageIdCount + report.unmappedCoverageIdCount;
   lines.push(`- Categories: ${report.categoryCount}`);
   lines.push(`- Profiles: ${report.profileCount}`);
   lines.push(
-    `- Fulfilled taxonomy categories: ${report.fulfilledCategoryCount}/${report.requiredCategoryCount} (${report.taxonomyFulfillmentPercent.toFixed(1)}%)`,
+    `- Fulfilled taxonomy categories: ${report.fulfilledCategoryCount}/${report.requiredCategoryCount} (${report.taxonomyFulfillmentPercent}%)`,
   );
   lines.push(`- Evidence refs: ${report.evidenceRefCount}`);
   lines.push(
-    `- Mapped QA coverage IDs: ${report.mappedCoverageIdCount}/${totalCoverageIds} (${report.mappedCoverageIdPercent.toFixed(1)}%)`,
+    `- Mapped QA coverage IDs: ${report.mappedCoverageIdCount}/${report.mappedCoverageIdCount + report.unmappedCoverageIdCount} (${report.mappedCoverageIdPercent}%)`,
   );
-  lines.push(`- Unmapped QA coverage IDs: ${report.unmappedCoverageIdCount}`);
+  lines.push(`- Unmapped coverage IDs: ${report.unmappedCoverageIdCount}`);
   lines.push(`- Validation warnings: ${report.validationIssueCount}`, "");
 
   if (report.profiles.length > 0) {
     lines.push("### Profiles", "");
     for (const profile of report.profiles) {
       const categories = profile.categoryIds.length > 0 ? profile.categoryIds.join(", ") : "none";
-      lines.push(
-        `- ${profile.id}: ${profile.fulfilledCategoryCount}/${profile.requiredCategoryCount} fulfilled (${profile.fulfillmentPercent.toFixed(1)}%); ${categories}`,
-      );
+      lines.push(`- ${profile.id}: ${profile.categoryIds.length} categories; ${categories}`);
     }
     lines.push("");
   }
@@ -349,15 +345,18 @@ function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomy
     lines.push("### Category Mapping", "");
     for (const category of report.categories) {
       const coverage = category.coverageIds.length > 0 ? category.coverageIds.join(", ") : "none";
-      const evidenceRefs =
+      const evidence =
         category.evidence.length > 0
           ? category.evidence
-              .map((ref) => `${ref.role}:${ref.kind}:${ref.path} (${ref.coverageIds.join(", ")})`)
+              .map((ref) => {
+                const target = ref.path ?? (ref.scenarioRefs.join("|") || "discovered");
+                return `${ref.role}:${ref.kind}:${target} (${ref.coverageId})`;
+              })
               .join(", ")
           : "none";
       const profiles = category.profiles.length > 0 ? category.profiles.join(", ") : "none";
       lines.push(
-        `- ${category.id} (${category.taxonomySurfaceId} / ${category.taxonomyCategoryName}; ${category.mappingStatus}): profiles: ${profiles}; coverage: ${coverage}; evidence: ${evidenceRefs}`,
+        `- ${category.id} (${category.taxonomySurfaceId} / ${category.taxonomyCategoryName}; ${category.mappingStatus}): profiles: ${profiles}; coverage: ${coverage}; evidence: ${evidence}`,
       );
     }
     lines.push("");
