@@ -11,14 +11,14 @@ const qaScorecardIdSchema = z
   .string()
   .trim()
   .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, {
-    message: "scorecard and feature ids must use lowercase dotted or dashed tokens",
+    message: "scorecard and coverage ids must use lowercase dotted or dashed tokens",
   });
 
 function isRepoRootRelativeRef(value: string) {
   return !path.isAbsolute(value) && value.split(/[\\/]+/u).every((part) => part !== "..");
 }
 
-const qaFeatureEvidenceRoleSchema = z.enum(["primary", "secondary"]);
+const qaCoverageEvidenceRoleSchema = z.enum(["primary", "secondary"]);
 
 const qaScorecardProfileSchema = z.object({
   id: qaScorecardIdSchema,
@@ -27,7 +27,7 @@ const qaScorecardProfileSchema = z.object({
 });
 
 const qaMaturityFeatureSchema = z.object({
-  id: qaScorecardIdSchema,
+  coverageId: qaScorecardIdSchema,
   name: z.string().trim().min(1),
   description: z.string().trim().min(1).optional(),
 });
@@ -79,14 +79,14 @@ const qaMaturityTaxonomySchema = z
     }
   });
 
-export type QaNativeFeatureEvidenceKind = "vitest" | "playwright";
-export type QaScorecardEvidenceKind = QaNativeFeatureEvidenceKind | "qa-scenario";
-type QaFeatureEvidenceRole = z.infer<typeof qaFeatureEvidenceRoleSchema>;
+export type QaNativeCoverageEvidenceKind = "vitest" | "playwright";
+export type QaScorecardEvidenceKind = QaNativeCoverageEvidenceKind | "qa-scenario";
+type QaCoverageEvidenceRole = z.infer<typeof qaCoverageEvidenceRoleSchema>;
 type QaMaturityTaxonomy = z.infer<typeof qaMaturityTaxonomySchema>;
 
 export type QaScorecardValidationIssueCode =
-  | "feature-id-missing-primary-evidence"
-  | "feature-id-not-found"
+  | "coverage-id-missing-primary-evidence"
+  | "coverage-id-not-found"
   | "evidence-ref-not-found"
   | "taxonomy-ref-not-found"
   | "taxonomy-category-ref-not-found"
@@ -102,10 +102,10 @@ export type QaScorecardValidationIssue = {
 };
 
 export type QaScorecardEvidenceReport = {
-  featureId: string;
+  coverageId: string;
   kind: QaScorecardEvidenceKind;
   path: string | null;
-  role: QaFeatureEvidenceRole;
+  role: QaCoverageEvidenceRole;
   scenarioRefs: string[];
 };
 
@@ -115,11 +115,11 @@ export type QaScorecardCategoryMappingReport = {
   taxonomyCategoryName: string;
   mappingStatus: "mapped" | "partial" | "missing";
   profiles: string[];
-  featureIds: string[];
-  fulfilledFeatureIds: string[];
+  coverageIds: string[];
+  fulfilledCoverageIds: string[];
   evidence: QaScorecardEvidenceReport[];
   scenarioRefs: string[];
-  missingFeatureIds: string[];
+  missingCoverageIds: string[];
   missingEvidenceRefs: string[];
 };
 
@@ -144,9 +144,9 @@ export type QaScorecardTaxonomyReport = {
   fulfilledFeatureCount: number;
   taxonomyFulfillmentPercent: number;
   evidenceRefCount: number;
-  scenarioFeatureIdCount: number;
-  unmappedFeatureIdCount: number;
-  unmappedFeatureIds: string[];
+  scenarioCoverageIdCount: number;
+  unmappedCoverageIdCount: number;
+  unmappedCoverageIds: string[];
   validationIssueCount: number;
   validationIssues: QaScorecardValidationIssue[];
   categories: QaScorecardCategoryMappingReport[];
@@ -156,14 +156,13 @@ type MaturityCategoryRef = {
   id: string;
   surfaceId: string;
   categoryName: string;
-  featureIds: string[];
+  coverageIds: string[];
 };
 
-type MaturityFeatureRef = {
-  id: string;
+type MaturityCoverageRef = {
+  coverageId: string;
   categoryId: string;
   surfaceId: string;
-  featureName: string;
 };
 
 function walkUpDirectories(start: string): string[] {
@@ -232,7 +231,7 @@ function pathExists(repoRoot: string | undefined, relativePath: string) {
   return repoRoot ? fs.existsSync(path.join(repoRoot, relativePath)) : true;
 }
 
-function scenarioFeatureIds(scenario: QaSeedScenarioWithSource) {
+function scenarioCoverageIds(scenario: QaSeedScenarioWithSource) {
   return [...(scenario.coverage?.primary ?? []), ...(scenario.coverage?.secondary ?? [])];
 }
 
@@ -250,27 +249,27 @@ function scenarioEvidencePath(scenario: QaSeedScenarioWithSource) {
   return scenario.execution.kind === "flow" ? null : scenario.execution.path;
 }
 
-function collectScenarioEvidenceByFeatureId(params: {
+function collectScenarioEvidenceByCoverageId(params: {
   scenarios: readonly QaSeedScenarioWithSource[];
-  role: QaFeatureEvidenceRole;
+  role: QaCoverageEvidenceRole;
 }) {
-  const refsByFeatureId = new Map<string, ScenarioEvidenceRef[]>();
+  const refsByCoverageId = new Map<string, ScenarioEvidenceRef[]>();
   for (const scenario of params.scenarios) {
-    const featureIds =
+    const coverageIds =
       params.role === "primary"
         ? (scenario.coverage?.primary ?? [])
         : (scenario.coverage?.secondary ?? []);
-    for (const featureId of featureIds) {
-      const refs = refsByFeatureId.get(featureId) ?? [];
+    for (const coverageId of coverageIds) {
+      const refs = refsByCoverageId.get(coverageId) ?? [];
       refs.push({
         sourcePath: scenario.sourcePath,
         kind: scenarioEvidenceKind(scenario),
         path: scenarioEvidencePath(scenario),
       });
-      refsByFeatureId.set(featureId, refs);
+      refsByCoverageId.set(coverageId, refs);
     }
   }
-  return refsByFeatureId;
+  return refsByCoverageId;
 }
 
 function uniqueSorted(values: Iterable<string>) {
@@ -283,61 +282,60 @@ function percent(part: number, total: number) {
 
 function buildMaturityRefs(taxonomy: QaMaturityTaxonomy | null) {
   const categories = new Map<string, MaturityCategoryRef>();
-  const features = new Map<string, MaturityFeatureRef>();
+  const coverageIds = new Map<string, MaturityCoverageRef>();
   if (!taxonomy) {
-    return { categories, features };
+    return { categories, coverageIds };
   }
 
   for (const surface of taxonomy.surfaces) {
     for (const category of surface.categories) {
       const categoryId = `${surface.id}.${category.id}`;
-      const featureIds = category.features.map((feature) => {
-        const featureId = `${categoryId}.${feature.id}`;
-        features.set(featureId, {
-          id: featureId,
+      const categoryCoverageIds = category.features.map((feature) => {
+        const coverageId = `${categoryId}.${feature.coverageId}`;
+        coverageIds.set(coverageId, {
+          coverageId,
           categoryId,
           surfaceId: surface.id,
-          featureName: feature.name,
         });
-        return featureId;
+        return coverageId;
       });
       categories.set(categoryId, {
         id: categoryId,
         surfaceId: surface.id,
         categoryName: category.name,
-        featureIds,
+        coverageIds: categoryCoverageIds,
       });
     }
   }
-  return { categories, features };
+  return { categories, coverageIds };
 }
 
 function pushMissingPrimaryIssues(params: {
   issues: QaScorecardValidationIssue[];
   category: MaturityCategoryRef;
-  fulfilledFeatureIds: ReadonlySet<string>;
-  featureIdsWithSecondaryEvidence: ReadonlySet<string>;
+  fulfilledCoverageIds: ReadonlySet<string>;
+  coverageIdsWithSecondaryEvidence: ReadonlySet<string>;
 }) {
-  for (const featureId of params.category.featureIds) {
-    if (params.fulfilledFeatureIds.has(featureId)) {
+  for (const coverageId of params.category.coverageIds) {
+    if (params.fulfilledCoverageIds.has(coverageId)) {
       continue;
     }
-    const reason = params.featureIdsWithSecondaryEvidence.has(featureId)
+    const reason = params.coverageIdsWithSecondaryEvidence.has(coverageId)
       ? "only has secondary evidence"
       : "has no primary evidence";
     params.issues.push({
-      code: "feature-id-missing-primary-evidence",
+      code: "coverage-id-missing-primary-evidence",
       severity: "warning",
       categoryId: params.category.id,
-      ref: featureId,
-      message: `${params.category.id} feature ${featureId} ${reason}`,
+      ref: coverageId,
+      message: `${params.category.id} coverage ID ${coverageId} ${reason}`,
     });
   }
 }
 
-function collectEvidenceReportsForFeature(params: {
-  featureId: string;
-  role: QaFeatureEvidenceRole;
+function collectEvidenceReportsForCoverageId(params: {
+  coverageId: string;
+  role: QaCoverageEvidenceRole;
   refs: readonly ScenarioEvidenceRef[];
   repoRoot?: string;
   categoryId: string;
@@ -365,7 +363,7 @@ function collectEvidenceReportsForFeature(params: {
     const report =
       grouped.get(key) ??
       ({
-        featureId: params.featureId,
+        coverageId: params.coverageId,
         kind: ref.kind,
         path: ref.path,
         role: params.role,
@@ -390,15 +388,15 @@ export function buildQaScorecardTaxonomyReport(params: {
   const maturityRefs = buildMaturityRefs(params.taxonomy);
   const issues: QaScorecardValidationIssue[] = [];
   const categories: QaScorecardCategoryMappingReport[] = [];
-  const primaryScenarioRefsByFeatureId = collectScenarioEvidenceByFeatureId({
+  const primaryScenarioRefsByCoverageId = collectScenarioEvidenceByCoverageId({
     scenarios: params.scenarios,
     role: "primary",
   });
-  const secondaryScenarioRefsByFeatureId = collectScenarioEvidenceByFeatureId({
+  const secondaryScenarioRefsByCoverageId = collectScenarioEvidenceByCoverageId({
     scenarios: params.scenarios,
     role: "secondary",
   });
-  const allScenarioFeatureIds = uniqueSorted(params.scenarios.flatMap(scenarioFeatureIds));
+  const allScenarioCoverageIds = uniqueSorted(params.scenarios.flatMap(scenarioCoverageIds));
   const missingEvidenceRefsByCategoryId = new Map<string, Set<string>>();
 
   if (!pathExists(params.repoRoot, QA_MATURITY_TAXONOMY_PATH) || !params.taxonomy) {
@@ -410,13 +408,13 @@ export function buildQaScorecardTaxonomyReport(params: {
     });
   }
 
-  for (const featureId of allScenarioFeatureIds) {
-    if (!maturityRefs.features.has(featureId)) {
+  for (const coverageId of allScenarioCoverageIds) {
+    if (!maturityRefs.coverageIds.has(coverageId)) {
       issues.push({
-        code: "feature-id-not-found",
+        code: "coverage-id-not-found",
         severity: "warning",
-        ref: featureId,
-        message: `QA scenario references missing taxonomy feature ${featureId}`,
+        ref: coverageId,
+        message: `QA scenario references missing taxonomy coverage ID ${coverageId}`,
       });
     }
   }
@@ -447,13 +445,13 @@ export function buildQaScorecardTaxonomyReport(params: {
     }) ?? [];
 
   const categoryIdsWithEvidence = new Set<string>();
-  for (const featureId of [
-    ...primaryScenarioRefsByFeatureId.keys(),
-    ...secondaryScenarioRefsByFeatureId.keys(),
+  for (const coverageId of [
+    ...primaryScenarioRefsByCoverageId.keys(),
+    ...secondaryScenarioRefsByCoverageId.keys(),
   ]) {
-    const feature = maturityRefs.features.get(featureId);
-    if (feature) {
-      categoryIdsWithEvidence.add(feature.categoryId);
+    const coverageRef = maturityRefs.coverageIds.get(coverageId);
+    if (coverageRef) {
+      categoryIdsWithEvidence.add(coverageRef.categoryId);
     }
   }
   const relevantCategoryIds = uniqueSorted([
@@ -479,15 +477,15 @@ export function buildQaScorecardTaxonomyReport(params: {
     const required = profileIds.length > 0;
     const evidenceReports: QaScorecardEvidenceReport[] = [];
     const categoryScenarioRefs = new Set<string>();
-    const fulfilledFeatureIds = new Set<string>();
-    const secondaryOnlyFeatureIds = new Set<string>();
-    const featureIdsWithAnyEvidence = new Set<string>();
+    const fulfilledCoverageIds = new Set<string>();
+    const secondaryOnlyCoverageIds = new Set<string>();
+    const coverageIdsWithAnyEvidence = new Set<string>();
 
-    for (const featureId of category.featureIds) {
-      const primaryScenarioRefs = primaryScenarioRefsByFeatureId.get(featureId) ?? [];
-      const secondaryScenarioRefs = secondaryScenarioRefsByFeatureId.get(featureId) ?? [];
-      const primaryEvidenceReports = collectEvidenceReportsForFeature({
-        featureId,
+    for (const coverageId of category.coverageIds) {
+      const primaryScenarioRefs = primaryScenarioRefsByCoverageId.get(coverageId) ?? [];
+      const secondaryScenarioRefs = secondaryScenarioRefsByCoverageId.get(coverageId) ?? [];
+      const primaryEvidenceReports = collectEvidenceReportsForCoverageId({
+        coverageId,
         role: "primary",
         refs: primaryScenarioRefs,
         repoRoot: params.repoRoot,
@@ -495,8 +493,8 @@ export function buildQaScorecardTaxonomyReport(params: {
         issues,
         missingEvidenceRefsByCategoryId,
       });
-      const secondaryEvidenceReports = collectEvidenceReportsForFeature({
-        featureId,
+      const secondaryEvidenceReports = collectEvidenceReportsForCoverageId({
+        coverageId,
         role: "secondary",
         refs: secondaryScenarioRefs,
         repoRoot: params.repoRoot,
@@ -509,8 +507,8 @@ export function buildQaScorecardTaxonomyReport(params: {
         for (const scenarioRef of primaryEvidenceReports.flatMap((report) => report.scenarioRefs)) {
           categoryScenarioRefs.add(scenarioRef);
         }
-        fulfilledFeatureIds.add(featureId);
-        featureIdsWithAnyEvidence.add(featureId);
+        fulfilledCoverageIds.add(coverageId);
+        coverageIdsWithAnyEvidence.add(coverageId);
         evidenceReports.push(...primaryEvidenceReports);
       }
 
@@ -520,38 +518,38 @@ export function buildQaScorecardTaxonomyReport(params: {
         )) {
           categoryScenarioRefs.add(scenarioRef);
         }
-        if (!fulfilledFeatureIds.has(featureId)) {
-          secondaryOnlyFeatureIds.add(featureId);
+        if (!fulfilledCoverageIds.has(coverageId)) {
+          secondaryOnlyCoverageIds.add(coverageId);
         }
-        featureIdsWithAnyEvidence.add(featureId);
+        coverageIdsWithAnyEvidence.add(coverageId);
         evidenceReports.push(...secondaryEvidenceReports);
       }
     }
 
     if (required) {
-      requiredFeatureCount += category.featureIds.length;
-      fulfilledFeatureCount += fulfilledFeatureIds.size;
+      requiredFeatureCount += category.coverageIds.length;
+      fulfilledFeatureCount += fulfilledCoverageIds.size;
       pushMissingPrimaryIssues({
         issues,
         category,
-        fulfilledFeatureIds,
-        featureIdsWithSecondaryEvidence: secondaryOnlyFeatureIds,
+        fulfilledCoverageIds,
+        coverageIdsWithSecondaryEvidence: secondaryOnlyCoverageIds,
       });
-      if (fulfilledFeatureIds.size === 0) {
+      if (fulfilledCoverageIds.size === 0) {
         issues.push({
           code: "profile-category-missing-evidence",
           severity: "warning",
           categoryId,
-          message: `${categoryId} is selected by a runnable profile but has no primary feature evidence`,
+          message: `${categoryId} is selected by a runnable profile but has no primary coverage evidence`,
         });
       }
     }
 
-    const missingFeatureIds = required
-      ? category.featureIds.filter((featureId) => !featureIdsWithAnyEvidence.has(featureId))
+    const missingCoverageIds = required
+      ? category.coverageIds.filter((coverageId) => !coverageIdsWithAnyEvidence.has(coverageId))
       : [];
     const mappingStatus =
-      required && fulfilledFeatureIds.size === category.featureIds.length
+      required && fulfilledCoverageIds.size === category.coverageIds.length
         ? "mapped"
         : evidenceReports.length > 0
           ? "partial"
@@ -563,15 +561,15 @@ export function buildQaScorecardTaxonomyReport(params: {
       taxonomyCategoryName: category.categoryName,
       mappingStatus,
       profiles: profileIds,
-      featureIds: category.featureIds,
-      fulfilledFeatureIds: uniqueSorted(fulfilledFeatureIds),
+      coverageIds: category.coverageIds,
+      fulfilledCoverageIds: uniqueSorted(fulfilledCoverageIds),
       evidence: evidenceReports.toSorted((left, right) =>
-        `${left.featureId}:${left.kind}:${left.path ?? ""}:${left.role}`.localeCompare(
-          `${right.featureId}:${right.kind}:${right.path ?? ""}:${right.role}`,
+        `${left.coverageId}:${left.kind}:${left.path ?? ""}:${left.role}`.localeCompare(
+          `${right.coverageId}:${right.kind}:${right.path ?? ""}:${right.role}`,
         ),
       ),
       scenarioRefs: uniqueSorted(categoryScenarioRefs),
-      missingFeatureIds: uniqueSorted(missingFeatureIds),
+      missingCoverageIds: uniqueSorted(missingCoverageIds),
       missingEvidenceRefs: uniqueSorted(missingEvidenceRefsByCategoryId.get(categoryId) ?? []),
     });
   }
@@ -580,8 +578,8 @@ export function buildQaScorecardTaxonomyReport(params: {
   const fulfilledCategoryCount = requiredCategories.filter(
     (category) => category.mappingStatus === "mapped",
   ).length;
-  const unmappedFeatureIds = allScenarioFeatureIds.filter(
-    (featureId) => !maturityRefs.features.has(featureId),
+  const unmappedCoverageIds = allScenarioCoverageIds.filter(
+    (coverageId) => !maturityRefs.coverageIds.has(coverageId),
   );
 
   return {
@@ -603,9 +601,9 @@ export function buildQaScorecardTaxonomyReport(params: {
     fulfilledFeatureCount,
     taxonomyFulfillmentPercent: percent(fulfilledFeatureCount, requiredFeatureCount),
     evidenceRefCount: categories.reduce((count, category) => count + category.evidence.length, 0),
-    scenarioFeatureIdCount: allScenarioFeatureIds.length,
-    unmappedFeatureIdCount: unmappedFeatureIds.length,
-    unmappedFeatureIds,
+    scenarioCoverageIdCount: allScenarioCoverageIds.length,
+    unmappedCoverageIdCount: unmappedCoverageIds.length,
+    unmappedCoverageIds,
     validationIssueCount: issues.length,
     validationIssues: issues,
     categories,

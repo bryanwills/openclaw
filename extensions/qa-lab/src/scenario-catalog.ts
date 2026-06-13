@@ -79,19 +79,19 @@ const qaScenarioExecutionSchema = z.union([
   qaNativeTestScenarioExecutionSchema,
 ]);
 
-const qaScenarioFeatureIdSchema = z
+const qaScenarioCoverageIdSchema = z
   .string()
   .trim()
   .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, {
-    message: "taxonomy feature ids must use lowercase dotted or dashed tokens",
+    message: "taxonomy coverage ids must use lowercase dotted or dashed tokens",
   });
 
-const qaScenarioFeatureIdListSchema = z.array(qaScenarioFeatureIdSchema).min(1);
+const qaScenarioCoverageIdListSchema = z.array(qaScenarioCoverageIdSchema).min(1);
 
 const qaScenarioCoverageSchema = z
   .object({
-    primary: qaScenarioFeatureIdListSchema,
-    secondary: qaScenarioFeatureIdListSchema.optional(),
+    primary: qaScenarioCoverageIdListSchema,
+    secondary: qaScenarioCoverageIdListSchema.optional(),
   })
   .superRefine((coverage, ctx) => {
     const seen = new Set<string>();
@@ -111,7 +111,7 @@ const qaScenarioCoverageSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [intent, index],
-          message: `duplicate taxonomy feature id: ${id}`,
+          message: `duplicate taxonomy coverage id: ${id}`,
         });
       }
     }

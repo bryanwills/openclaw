@@ -373,7 +373,7 @@ function timingForScenario(scenario) {
 
 function buildScenarioCoverage(scenarioId) {
   const liveCoverage = {
-    featureId: "channels.telegram.live",
+    coverageId: "channels.telegram.live",
     role: "live-transport",
     surfaceIds: ["channels.telegram"],
     categoryIds: ["channels.telegram.live"],
@@ -385,7 +385,7 @@ function buildScenarioCoverage(scenarioId) {
   return [
     liveCoverage,
     {
-      featureId: `channels.telegram.${standardId}`,
+      coverageId: `channels.telegram.${standardId}`,
       role: "live-transport-standard",
       surfaceIds: ["channels.telegram"],
       categoryIds: ["channels.telegram.live"],

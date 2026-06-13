@@ -6,7 +6,7 @@ Single source of truth for repo-backed QA suite bootstrap data.
 - `index.md` defines pack-level bootstrap data
 - each nested `*.md` scenario defines one evidence scenario via `qa-scenario`
 - flow scenarios add `qa-flow`; native test scenarios use `execution.path`
-- scenario markdown may also define taxonomy feature IDs, category metadata, required plugins,
+- scenario markdown may also define taxonomy coverage IDs, category metadata, required plugins,
   lane filters, runtime parity tiers, and gateway config patching
 
 - kickoff mission
@@ -15,13 +15,13 @@ Single source of truth for repo-backed QA suite bootstrap data.
 
 Coverage tracking:
 
-- add fully qualified taxonomy feature IDs to `coverage.primary` in each scenario's
+- add fully qualified taxonomy coverage IDs to `coverage.primary` in each scenario's
   `qa-scenario` block
 - add `coverage.secondary` only when a scenario intentionally protects another behavior
 - keep IDs behavior-shaped, broad enough to reuse, lowercase, and dotted or dashed
-- use feature IDs from `taxonomy.yaml` in `<surface>.<category>.<feature>` form
-- prefer reusing an existing feature ID over minting a scenario-shaped ID
-- avoid copying the scenario title into feature IDs
+- use coverage IDs from `taxonomy.yaml` in `<surface>.<category>.<feature>` form
+- prefer reusing an existing coverage ID over minting a scenario-shaped ID
+- avoid copying the scenario title into coverage IDs
 - use `pnpm openclaw qa coverage` to render the current inventory
 - use `execution.kind: vitest` or `execution.kind: playwright` plus `execution.path`
   for native test files that provide evidence without a `qa-flow` block

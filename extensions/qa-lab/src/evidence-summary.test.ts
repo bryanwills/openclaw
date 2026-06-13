@@ -25,8 +25,8 @@ describe("evidence summary", () => {
           sourcePath: "qa/scenarios/channels/dm-chat-baseline.md",
           surface: "dm",
           coverage: {
-            primary: ["channels.dm"],
-            secondary: ["channels.qa-channel"],
+            primary: ["channel-framework.conversation-routing-and-delivery.direct-message-routing"],
+            secondary: ["channel-framework.qa-channel-fixture.synthetic-channel-driver"],
           },
           runtimeParityTier: "standard",
           docsRefs: ["docs/channels/qa-channel.md"],
@@ -61,13 +61,14 @@ describe("evidence summary", () => {
         profile: "smoke-ci",
         coverage: [
           {
-            featureId: "channels.dm",
+            coverageId:
+              "channel-framework.conversation-routing-and-delivery.direct-message-routing",
             role: "primary",
             surfaceIds: ["dm"],
-            categoryIds: ["channels.dm"],
+            categoryIds: ["channel-framework.conversation-routing-and-delivery"],
           },
           {
-            featureId: "channels.qa-channel",
+            coverageId: "channel-framework.qa-channel-fixture.synthetic-channel-driver",
             role: "secondary",
             surfaceIds: ["dm"],
             categoryIds: [],
@@ -166,13 +167,13 @@ describe("evidence summary", () => {
           profile: "release",
           coverage: [
             {
-              featureId: "channels.telegram.live",
+              coverageId: "channels.telegram.live",
               role: "live-transport",
               surfaceIds: ["channels.telegram"],
               categoryIds: ["channels.telegram.live"],
             },
             {
-              featureId: "channels.telegram.canary",
+              coverageId: "channels.telegram.canary",
               role: "live-transport-standard",
               surfaceIds: ["channels.telegram"],
               categoryIds: ["channels.telegram.live"],
@@ -242,7 +243,7 @@ describe("evidence summary", () => {
           id: "runtime.agent-runner-boundary",
           title: "Agent runner boundary integration tests",
           sourcePath: "src/agents/agent-runner.e2e.test.ts",
-          featureIds: ["runtime.agent-runner", "runtime.delivery"],
+          coverageIds: ["runtime.agent-runner", "runtime.delivery"],
           surfaceIds: ["agent-runtime-and-provider-execution"],
           categoryIds: ["agent-runtime-and-provider-execution.agent-turn-execution"],
           codeRefs: ["src/agents/agent-runner.ts"],
@@ -272,13 +273,13 @@ describe("evidence summary", () => {
           profile: "smoke-ci",
           coverage: [
             {
-              featureId: "runtime.agent-runner",
+              coverageId: "runtime.agent-runner",
               role: "primary",
               surfaceIds: ["agent-runtime-and-provider-execution"],
               categoryIds: ["agent-runtime-and-provider-execution.agent-turn-execution"],
             },
             {
-              featureId: "runtime.delivery",
+              coverageId: "runtime.delivery",
               role: "primary",
               surfaceIds: ["agent-runtime-and-provider-execution"],
               categoryIds: ["agent-runtime-and-provider-execution.agent-turn-execution"],
@@ -332,7 +333,7 @@ describe("evidence summary", () => {
           id: "control-ui.browser-run",
           title: "Control UI browser workflow",
           sourcePath: "ui/control-ui.e2e.test.ts",
-          featureIds: ["control-ui.browser"],
+          coverageIds: ["control-ui.browser"],
           surfaceIds: ["browser-control-ui-and-webchat"],
           categoryIds: ["browser-control-ui-and-webchat.browser-ui"],
           docsRefs: ["docs/concepts/qa-e2e-automation.md"],
@@ -362,7 +363,7 @@ describe("evidence summary", () => {
       mapping: {
         coverage: [
           {
-            featureId: "control-ui.browser",
+            coverageId: "control-ui.browser",
             role: "primary",
             surfaceIds: ["browser-control-ui-and-webchat"],
             categoryIds: ["browser-control-ui-and-webchat.browser-ui"],
