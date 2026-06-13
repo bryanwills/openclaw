@@ -156,8 +156,8 @@ inside every shard.
     fixture and protocol-mock coverage without replacing the scenario-aware
     `mock-openai` lane.
 - `pnpm openclaw qa coverage --match <query>`
-  - Searches scenario IDs, titles, surfaces, coverage IDs, docs refs, code refs,
-    plugins, and provider requirements, then prints matching suite targets.
+  - Searches scenario IDs, titles, surfaces, taxonomy feature IDs, docs refs, code refs,
+    plugins, and provider requirements, then prints matching scenario refs.
   - Use this before a QA Lab run when you know the touched behavior or file path
     but not the smallest scenario. It is advisory only; still choose mock,
     live, Multipass, Matrix, or transport proof from the behavior being changed.

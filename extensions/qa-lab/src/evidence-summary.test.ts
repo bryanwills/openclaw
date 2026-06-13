@@ -61,13 +61,13 @@ describe("evidence summary", () => {
         profile: "smoke-ci",
         coverage: [
           {
-            id: "channels.dm",
+            featureId: "channels.dm",
             role: "primary",
             surfaceIds: ["dm"],
             categoryIds: ["channels.dm"],
           },
           {
-            id: "channels.qa-channel",
+            featureId: "channels.qa-channel",
             role: "secondary",
             surfaceIds: ["dm"],
             categoryIds: [],
@@ -166,13 +166,13 @@ describe("evidence summary", () => {
           profile: "release",
           coverage: [
             {
-              id: "channels.telegram.live",
+              featureId: "channels.telegram.live",
               role: "live-transport",
               surfaceIds: ["channels.telegram"],
               categoryIds: ["channels.telegram.live"],
             },
             {
-              id: "channels.telegram.canary",
+              featureId: "channels.telegram.canary",
               role: "live-transport-standard",
               surfaceIds: ["channels.telegram"],
               categoryIds: ["channels.telegram.live"],
@@ -242,7 +242,7 @@ describe("evidence summary", () => {
           id: "runtime.agent-runner-boundary",
           title: "Agent runner boundary integration tests",
           sourcePath: "src/agents/agent-runner.e2e.test.ts",
-          coverageIds: ["runtime.agent-runner", "runtime.delivery"],
+          featureIds: ["runtime.agent-runner", "runtime.delivery"],
           surfaceIds: ["agent-runtime-and-provider-execution"],
           categoryIds: ["agent-runtime-and-provider-execution.agent-turn-execution"],
           codeRefs: ["src/agents/agent-runner.ts"],
@@ -272,13 +272,13 @@ describe("evidence summary", () => {
           profile: "smoke-ci",
           coverage: [
             {
-              id: "runtime.agent-runner",
+              featureId: "runtime.agent-runner",
               role: "primary",
               surfaceIds: ["agent-runtime-and-provider-execution"],
               categoryIds: ["agent-runtime-and-provider-execution.agent-turn-execution"],
             },
             {
-              id: "runtime.delivery",
+              featureId: "runtime.delivery",
               role: "primary",
               surfaceIds: ["agent-runtime-and-provider-execution"],
               categoryIds: ["agent-runtime-and-provider-execution.agent-turn-execution"],
@@ -332,7 +332,7 @@ describe("evidence summary", () => {
           id: "control-ui.browser-run",
           title: "Control UI browser workflow",
           sourcePath: "ui/control-ui.e2e.test.ts",
-          coverageIds: ["control-ui.browser"],
+          featureIds: ["control-ui.browser"],
           surfaceIds: ["browser-control-ui-and-webchat"],
           categoryIds: ["browser-control-ui-and-webchat.browser-ui"],
           docsRefs: ["docs/concepts/qa-e2e-automation.md"],
@@ -362,7 +362,7 @@ describe("evidence summary", () => {
       mapping: {
         coverage: [
           {
-            id: "control-ui.browser",
+            featureId: "control-ui.browser",
             role: "primary",
             surfaceIds: ["browser-control-ui-and-webchat"],
             categoryIds: ["browser-control-ui-and-webchat.browser-ui"],

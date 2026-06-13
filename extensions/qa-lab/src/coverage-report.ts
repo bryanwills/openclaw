@@ -20,9 +20,11 @@ type QaCoverageScenarioSummary = {
 };
 
 type QaScenarioSearchMatch = QaCoverageScenarioSummary & {
-  coverageIds: string[];
+  featureIds: string[];
   docsRefs: string[];
   codeRefs: string[];
+  executionKind: QaSeedScenarioWithSource["execution"]["kind"];
+  executionPath?: string;
   runtimeParityTier?: string;
   requiredProviderMode?: string;
   requiredProvider?: string;
@@ -44,15 +46,15 @@ type QaCoverageScenarioPackSummary = {
   id: string;
   title: string;
   scenarioIds: string[];
-  coverageIds: string[];
+  featureIds: string[];
   missingScenarioIds: string[];
 };
 
 type QaCoverageInventory = {
   scenarioCount: number;
-  coverageIdCount: number;
-  primaryCoverageIdCount: number;
-  secondaryCoverageIdCount: number;
+  featureIdCount: number;
+  primaryFeatureIdCount: number;
+  secondaryFeatureIdCount: number;
   features: QaCoverageFeatureSummary[];
   overlappingCoverage: QaCoverageFeatureSummary[];
   missingCoverage: QaCoverageScenarioSummary[];
@@ -132,12 +134,14 @@ function summarizeScenarioSearchMatch(scenario: QaSeedScenarioWithSource): QaSce
   const config = scenario.execution.config ?? {};
   return {
     ...summarizeScenario(scenario),
-    coverageIds: [
+    featureIds: [
       ...(scenario.coverage?.primary ?? []),
       ...(scenario.coverage?.secondary ?? []),
     ].toSorted((left, right) => left.localeCompare(right)),
     docsRefs: [...(scenario.docsRefs ?? [])],
     codeRefs: [...(scenario.codeRefs ?? [])],
+    executionKind: scenario.execution.kind,
+    ...(scenario.execution.kind !== "flow" ? { executionPath: scenario.execution.path } : {}),
     runtimeParityTier: scenario.runtimeParityTier,
     requiredProviderMode: stringifyConfigValue(config.requiredProviderMode),
     requiredProvider: stringifyConfigValue(config.requiredProvider),
@@ -171,7 +175,7 @@ function buildScenarioPackSummaries(
 ): QaCoverageScenarioPackSummary[] {
   const scenariosById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
   return QA_SCENARIO_PACKS.map((pack) => {
-    const coverageIds = new Set<string>();
+    const featureIds = new Set<string>();
     const missingScenarioIds: string[] = [];
     for (const scenarioId of pack.scenarioIds) {
       const scenario = scenariosById.get(scenarioId);
@@ -179,18 +183,18 @@ function buildScenarioPackSummaries(
         missingScenarioIds.push(scenarioId);
         continue;
       }
-      for (const coverageId of [
+      for (const featureId of [
         ...(scenario.coverage?.primary ?? []),
         ...(scenario.coverage?.secondary ?? []),
       ]) {
-        coverageIds.add(coverageId);
+        featureIds.add(featureId);
       }
     }
     return {
       id: pack.id,
       title: pack.title,
       scenarioIds: [...pack.scenarioIds],
-      coverageIds: [...coverageIds].toSorted(),
+      featureIds: [...featureIds].toSorted(),
       missingScenarioIds,
     };
   }).toSorted((left, right) => left.id.localeCompare(right.id));
@@ -199,28 +203,28 @@ function buildScenarioPackSummaries(
 export function buildQaCoverageInventory(
   scenarios: readonly QaSeedScenarioWithSource[],
 ): QaCoverageInventory {
-  const byCoverageId = new Map<string, QaCoverageFeatureSummary>();
-  const primaryCoverageIds = new Set<string>();
-  const secondaryCoverageIds = new Set<string>();
+  const byFeatureId = new Map<string, QaCoverageFeatureSummary>();
+  const primaryFeatureIds = new Set<string>();
+  const secondaryFeatureIds = new Set<string>();
   const missingCoverage: QaCoverageScenarioSummary[] = [];
 
-  const addCoverage = (
+  const addFeatureCoverage = (
     scenario: QaSeedScenarioWithSource,
-    coverageIds: readonly string[] | undefined,
+    featureIds: readonly string[] | undefined,
     intent: QaCoverageIntent,
   ) => {
     const summary = summarizeScenario(scenario);
-    for (const coverageId of coverageIds ?? []) {
-      const feature = byCoverageId.get(coverageId) ?? {
-        id: coverageId,
+    for (const featureId of featureIds ?? []) {
+      const feature = byFeatureId.get(featureId) ?? {
+        id: featureId,
         scenarios: [],
       };
       feature.scenarios.push({ ...summary, intent });
-      byCoverageId.set(coverageId, feature);
+      byFeatureId.set(featureId, feature);
       if (intent === "primary") {
-        primaryCoverageIds.add(coverageId);
+        primaryFeatureIds.add(featureId);
       } else {
-        secondaryCoverageIds.add(coverageId);
+        secondaryFeatureIds.add(featureId);
       }
     }
   };
@@ -230,11 +234,11 @@ export function buildQaCoverageInventory(
       missingCoverage.push(summarizeScenario(scenario));
       continue;
     }
-    addCoverage(scenario, scenario.coverage.primary, "primary");
-    addCoverage(scenario, scenario.coverage.secondary, "secondary");
+    addFeatureCoverage(scenario, scenario.coverage.primary, "primary");
+    addFeatureCoverage(scenario, scenario.coverage.secondary, "secondary");
   }
 
-  const features = sortFeatures([...byCoverageId.values()]);
+  const features = sortFeatures([...byFeatureId.values()]);
   const overlappingCoverage = features.filter((feature) => feature.scenarios.length > 1);
   const byTheme: Record<string, QaCoverageFeatureSummary[]> = {};
   const bySurface: Record<string, QaCoverageFeatureSummary[]> = {};
@@ -260,9 +264,9 @@ export function buildQaCoverageInventory(
 
   return {
     scenarioCount: scenarios.length,
-    coverageIdCount: features.length,
-    primaryCoverageIdCount: primaryCoverageIds.size,
-    secondaryCoverageIdCount: secondaryCoverageIds.size,
+    featureIdCount: features.length,
+    primaryFeatureIdCount: primaryFeatureIds.size,
+    secondaryFeatureIdCount: secondaryFeatureIds.size,
     features,
     overlappingCoverage,
     missingCoverage,
@@ -310,7 +314,7 @@ function pushScenarioPackLines(lines: string[], packs: readonly QaCoverageScenar
     const missing =
       pack.missingScenarioIds.length > 0 ? pack.missingScenarioIds.join(", ") : "none";
     lines.push(
-      `- ${pack.id} (${pack.title}): ${pack.scenarioIds.length} scenarios; coverage: ${pack.coverageIds.join(", ")}; missing scenarios: ${missing}`,
+      `- ${pack.id} (${pack.title}): ${pack.scenarioIds.length} scenarios; feature IDs: ${pack.featureIds.join(", ")}; missing scenarios: ${missing}`,
     );
     lines.push(`  - scenarios: ${pack.scenarioIds.join(", ")}`);
   }
@@ -318,18 +322,18 @@ function pushScenarioPackLines(lines: string[], packs: readonly QaCoverageScenar
 
 function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomyReport) {
   lines.push("## Scorecard Taxonomy", "");
-  lines.push(`- Mapping: ${report.taxonomyPath ?? "missing"}`);
-  lines.push(`- Maturity taxonomy: ${report.taxonomy?.sourcePath ?? "missing"}`);
+  lines.push(`- Taxonomy: ${report.taxonomyPath ?? "missing"}`);
   lines.push(`- Categories: ${report.categoryCount}`);
   lines.push(`- Profiles: ${report.profileCount}`);
   lines.push(
-    `- Fulfilled taxonomy categories: ${report.fulfilledCategoryCount}/${report.requiredCategoryCount} (${report.taxonomyFulfillmentPercent}%)`,
+    `- Fulfilled taxonomy categories: ${report.fulfilledCategoryCount}/${report.requiredCategoryCount} (${report.categoryFulfillmentPercent}%)`,
+  );
+  lines.push(
+    `- Fulfilled taxonomy features: ${report.fulfilledFeatureCount}/${report.requiredFeatureCount} (${report.taxonomyFulfillmentPercent}%)`,
   );
   lines.push(`- Evidence refs: ${report.evidenceRefCount}`);
-  lines.push(
-    `- Mapped QA coverage IDs: ${report.mappedCoverageIdCount}/${report.mappedCoverageIdCount + report.unmappedCoverageIdCount} (${report.mappedCoverageIdPercent}%)`,
-  );
-  lines.push(`- Unmapped coverage IDs: ${report.unmappedCoverageIdCount}`);
+  lines.push(`- Scenario feature IDs: ${report.scenarioFeatureIdCount}`);
+  lines.push(`- Unmapped scenario feature IDs: ${report.unmappedFeatureIdCount}`);
   lines.push(`- Validation warnings: ${report.validationIssueCount}`, "");
 
   if (report.profiles.length > 0) {
@@ -344,19 +348,19 @@ function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomy
   if (report.categories.length > 0) {
     lines.push("### Category Mapping", "");
     for (const category of report.categories) {
-      const coverage = category.coverageIds.length > 0 ? category.coverageIds.join(", ") : "none";
+      const features = category.featureIds.length > 0 ? category.featureIds.join(", ") : "none";
       const evidence =
         category.evidence.length > 0
           ? category.evidence
               .map((ref) => {
                 const target = ref.path ?? (ref.scenarioRefs.join("|") || "discovered");
-                return `${ref.role}:${ref.kind}:${target} (${ref.coverageId})`;
+                return `${ref.role}:${ref.kind}:${target} (${ref.featureId})`;
               })
               .join(", ")
           : "none";
       const profiles = category.profiles.length > 0 ? category.profiles.join(", ") : "none";
       lines.push(
-        `- ${category.id} (${category.taxonomySurfaceId} / ${category.taxonomyCategoryName}; ${category.mappingStatus}): profiles: ${profiles}; coverage: ${coverage}; evidence: ${evidence}`,
+        `- ${category.id} (${category.taxonomySurfaceId} / ${category.taxonomyCategoryName}; ${category.mappingStatus}): profiles: ${profiles}; features: ${features}; evidence: ${evidence}`,
       );
     }
     lines.push("");
@@ -371,9 +375,9 @@ function pushScorecardTaxonomyLines(lines: string[], report: QaScorecardTaxonomy
     lines.push("");
   }
 
-  if (report.unmappedCoverageIds.length > 0) {
-    lines.push("### Unmapped Coverage IDs", "");
-    lines.push(report.unmappedCoverageIds.join(", "));
+  if (report.unmappedFeatureIds.length > 0) {
+    lines.push("### Unmapped Scenario Feature IDs", "");
+    lines.push(report.unmappedFeatureIds.join(", "));
     lines.push("");
   }
 }
@@ -383,10 +387,10 @@ export function renderQaCoverageMarkdownReport(inventory: QaCoverageInventory): 
     "# QA Coverage Inventory",
     "",
     `- Scenarios: ${inventory.scenarioCount}`,
-    `- Coverage IDs: ${inventory.coverageIdCount}`,
-    `- Primary coverage IDs: ${inventory.primaryCoverageIdCount}`,
-    `- Secondary coverage IDs: ${inventory.secondaryCoverageIdCount}`,
-    `- Overlapping coverage IDs: ${inventory.overlappingCoverage.length}`,
+    `- Taxonomy feature IDs: ${inventory.featureIdCount}`,
+    `- Primary feature IDs: ${inventory.primaryFeatureIdCount}`,
+    `- Secondary feature IDs: ${inventory.secondaryFeatureIdCount}`,
+    `- Overlapping feature IDs: ${inventory.overlappingCoverage.length}`,
     `- Missing coverage metadata: ${inventory.missingCoverage.length}`,
     "",
   ];
@@ -452,7 +456,9 @@ export function renderQaScenarioMatchesMarkdownReport(params: {
   query: string;
   matches: readonly QaScenarioSearchMatch[];
 }) {
-  const scenarioArgs = params.matches.map((match) => `--scenario ${match.id}`).join(" ");
+  const flowMatches = params.matches.filter((match) => match.executionKind === "flow");
+  const nativeMatches = params.matches.filter((match) => match.executionKind !== "flow");
+  const scenarioArgs = flowMatches.map((match) => `--scenario ${match.id}`).join(" ");
   const lines = [
     "# QA Scenario Matches",
     "",
@@ -462,6 +468,12 @@ export function renderQaScenarioMatchesMarkdownReport(params: {
 
   if (scenarioArgs) {
     lines.push(`- Suite command: \`pnpm openclaw qa suite ${scenarioArgs}\``);
+  }
+  if (nativeMatches.length > 0) {
+    const refs = nativeMatches
+      .map((match) => `${match.executionKind}:${match.executionPath ?? "missing"} (${match.id})`)
+      .join("; ");
+    lines.push(`- Native test refs: ${refs}`);
   }
   lines.push("");
 
@@ -474,7 +486,12 @@ export function renderQaScenarioMatchesMarkdownReport(params: {
     lines.push(`- ${match.id}: ${match.title}`);
     lines.push(`  - source: ${match.sourcePath}`);
     lines.push(`  - surface: ${match.surfaces.join(", ")}`);
-    lines.push(`  - coverage: ${match.coverageIds.join(", ") || "none"}`);
+    lines.push(
+      match.executionKind === "flow"
+        ? "  - execution: qa-flow"
+        : `  - execution: ${match.executionKind} ${match.executionPath ?? "missing"}`,
+    );
+    lines.push(`  - feature IDs: ${match.featureIds.join(", ") || "none"}`);
     lines.push(`  - live requirements: ${formatOptionalScenarioMetadata(match)}`);
     if (match.codeRefs.length > 0) {
       lines.push(`  - code refs: ${match.codeRefs.join(", ")}`);

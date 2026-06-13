@@ -11,7 +11,6 @@ const qaEvidenceStatusSchema = z.enum(["pass", "fail", "blocked", "skipped"]);
 const nonEmptyStringSchema = z.string().trim().min(1);
 const nullableStringSchema = nonEmptyStringSchema.nullable();
 const qaEvidenceProfileIdSchema = nonEmptyStringSchema;
-const qaEvidenceIdSchema = z.object({ id: nonEmptyStringSchema });
 
 const qaEvidenceProviderSchema = z
   .object({
@@ -93,8 +92,9 @@ const qaEvidenceRefSchema = z
   })
   .strict();
 
-const qaEvidenceCoverageSchema = qaEvidenceIdSchema
-  .extend({
+const qaEvidenceCoverageSchema = z
+  .object({
+    featureId: nonEmptyStringSchema,
     role: nonEmptyStringSchema,
     surfaceIds: z.array(nonEmptyStringSchema),
     categoryIds: z.array(nonEmptyStringSchema),
@@ -210,7 +210,7 @@ type QaEvidenceTestTargetInput = {
   id: string;
   title: string;
   sourcePath: string;
-  coverageIds: readonly string[];
+  featureIds: readonly string[];
   surfaceIds: readonly string[];
   categoryIds: readonly string[];
   docsRefs?: readonly string[];
@@ -262,22 +262,26 @@ function buildQaEvidenceRefs(params: {
 }
 
 function buildQaEvidenceCoverage(params: {
-  primaryIds?: readonly string[];
-  secondaryIds?: readonly string[];
+  primaryFeatureIds?: readonly string[];
+  secondaryFeatureIds?: readonly string[];
   surfaceIds?: readonly string[];
   categoryIds?: readonly string[];
 }) {
   const surfaceIds = uniqueSortedStrings(params.surfaceIds ?? []);
   const categoryIds = uniqueSortedStrings(params.categoryIds ?? []);
-  const buildCoverage = (id: string, role: "primary" | "secondary") => ({
-    id,
+  const buildCoverage = (featureId: string, role: "primary" | "secondary") => ({
+    featureId,
     role,
     surfaceIds,
     categoryIds: role === "primary" ? categoryIds : [],
   });
   return [
-    ...uniqueSortedStrings(params.primaryIds ?? []).map((id) => buildCoverage(id, "primary")),
-    ...uniqueSortedStrings(params.secondaryIds ?? []).map((id) => buildCoverage(id, "secondary")),
+    ...uniqueSortedStrings(params.primaryFeatureIds ?? []).map((featureId) =>
+      buildCoverage(featureId, "primary"),
+    ),
+    ...uniqueSortedStrings(params.secondaryFeatureIds ?? []).map((featureId) =>
+      buildCoverage(featureId, "secondary"),
+    ),
   ];
 }
 
@@ -480,8 +484,8 @@ export function buildQaSuiteEvidenceSummary(
   });
   const entries = params.scenarioResults.map((result, index): QaEvidenceSummaryEntry => {
     const scenario = params.scenarioDefinitions[index];
-    const primaryCoverageIds = uniqueSortedStrings(scenario?.coverage?.primary ?? []);
-    const coverageIds = uniqueSortedStrings([
+    const primaryFeatureIds = uniqueSortedStrings(scenario?.coverage?.primary ?? []);
+    const featureIds = uniqueSortedStrings([
       ...(scenario?.coverage?.primary ?? []),
       ...(scenario?.coverage?.secondary ?? []),
     ]);
@@ -505,12 +509,12 @@ export function buildQaSuiteEvidenceSummary(
       mapping: {
         profile,
         coverage: buildQaEvidenceCoverage({
-          primaryIds: primaryCoverageIds,
-          secondaryIds: coverageIds.filter(
-            (coverageId) => !primaryCoverageIds.includes(coverageId),
+          primaryFeatureIds,
+          secondaryFeatureIds: featureIds.filter(
+            (featureId) => !primaryFeatureIds.includes(featureId),
           ),
           surfaceIds,
-          categoryIds: uniqueSortedStrings([scenario?.category, ...primaryCoverageIds]),
+          categoryIds: uniqueSortedStrings([scenario?.category, ...primaryFeatureIds]),
         }),
         refs: refs.length > 0 ? refs : undefined,
         runtimeParityTier,
@@ -578,7 +582,7 @@ function buildTestRunnerEvidenceSummary(
       mapping: {
         profile,
         coverage: buildQaEvidenceCoverage({
-          primaryIds: target?.coverageIds ?? [],
+          primaryFeatureIds: target?.featureIds ?? [],
           surfaceIds: target?.surfaceIds ?? [],
           categoryIds: target?.categoryIds ?? [],
         }),
@@ -646,20 +650,20 @@ export function buildLiveTransportEvidenceSummary(
   }) ?? { id: "native" };
   const entries = params.checks.map((check): QaEvidenceSummaryEntry => {
     const testId = check.id;
-    const standardCoverageId = check.standardId
+    const standardFeatureId = check.standardId
       ? `channels.${params.transportId}.${check.standardId}`
       : undefined;
     const coverage = [
       {
-        id: `channels.${params.transportId}.live`,
+        featureId: `channels.${params.transportId}.live`,
         role: "live-transport",
         surfaceIds: [`channels.${params.transportId}`],
         categoryIds: [`channels.${params.transportId}.live`],
       },
     ];
-    if (standardCoverageId) {
+    if (standardFeatureId) {
       coverage.push({
-        id: standardCoverageId,
+        featureId: standardFeatureId,
         role: "live-transport-standard",
         surfaceIds: [`channels.${params.transportId}`],
         categoryIds: [`channels.${params.transportId}.live`],

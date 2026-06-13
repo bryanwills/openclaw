@@ -18,6 +18,16 @@ import {
 } from "./suite-planning.js";
 import { makeQaSuiteTestScenario } from "./suite-test-helpers.js";
 
+function makeNativeQaSuiteTestScenario(id: string): ReturnType<typeof makeQaSuiteTestScenario> {
+  return {
+    ...makeQaSuiteTestScenario(id),
+    execution: {
+      kind: "playwright",
+      path: `ui/src/ui/e2e/${id}.e2e.test.ts`,
+    },
+  };
+}
+
 describe("qa suite planning helpers", () => {
   it("normalizes suite concurrency to a bounded integer", () => {
     const previous = process.env.OPENCLAW_QA_SUITE_CONCURRENCY;
@@ -408,6 +418,33 @@ describe("qa suite planning helpers", () => {
         claudeCliAuthMode: "subscription",
       }).map((scenario) => scenario.id),
     ).toEqual(["generic", "claude-subscription"]);
+  });
+
+  it("keeps native test evidence scenarios out of implicit suite selections", () => {
+    const scenarios = [makeQaSuiteTestScenario("flow"), makeNativeQaSuiteTestScenario("native")];
+
+    expect(
+      selectQaSuiteScenarios({
+        scenarios,
+        providerMode: "mock-openai",
+        primaryModel: "mock-openai/gpt-5.5",
+      }).map((scenario) => scenario.id),
+    ).toEqual(["flow"]);
+  });
+
+  it("rejects explicit native test scenarios in the flow suite", () => {
+    const scenarios = [makeQaSuiteTestScenario("flow"), makeNativeQaSuiteTestScenario("native")];
+
+    expect(() =>
+      selectQaSuiteScenarios({
+        scenarios,
+        scenarioIds: ["native"],
+        providerMode: "mock-openai",
+        primaryModel: "mock-openai/gpt-5.5",
+      }),
+    ).toThrow(
+      "qa suite can only run qa-flow scenarios; native test scenario(s) must run through their test runner: native (playwright)",
+    );
   });
 
   it("filters provider-mode-specific scenarios from implicit suite selections", () => {

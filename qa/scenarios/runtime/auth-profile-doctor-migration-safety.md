@@ -7,13 +7,15 @@ surface: runtime
 runtimeParityTier: standard
 coverage:
   primary:
-    - runtime.doctor-repair
+    - telemetry-diagnostics-and-observability.health-and-repair.openclaw-doctor
   secondary:
-    - runtime.codex-plugin.auth
-objective: Reproduce the doctor-migration auth cells as an automated fixture matrix for Codex OAuth selection.
+    - openai-codex-provider-path.model-and-auth.codex-oauth-profiles
+objective: Reproduce the doctor-migration auth cells as an automated fixture
+  matrix for Codex OAuth selection.
 successCriteria:
   - OAuth-only hosts select the openai OAuth profile and use the Codex harness.
-  - Mixed-profile hosts still select openai OAuth when an openai API-key profile exists.
+  - Mixed-profile hosts still select openai OAuth when an openai API-key profile
+    exists.
 docsRefs:
   - docs/cli/doctor.md
 codeRefs:

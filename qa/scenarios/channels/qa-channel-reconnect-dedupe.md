@@ -6,15 +6,18 @@ title: QA channel reconnect dedupe
 surface: channel
 coverage:
   primary:
-    - channels.reconnect
+    - channel-framework.status-health-and-operator-controls.channel-health-policy
   secondary:
-    - channels.dedup
-    - runtime.delivery
-objective: Verify qa-channel readiness polling keeps prior delivery stable and does not replay the last outbound message.
+    - agent-runtime-and-provider-execution.agent-turn-execution.session-and-run-coordination
+    - channel-framework.outbound-delivery-and-reply-pipeline.automatic-final-reply-delivery
+    - channel-framework.outbound-delivery-and-reply-pipeline.durable-outbound-send-orchestration
+objective: Verify qa-channel readiness polling keeps prior delivery stable and
+  does not replay the last outbound message.
 successCriteria:
   - Agent replies once before a reconnect-style readiness cycle.
   - qa-channel reports ready again without replaying prior outbound delivery.
-  - Follow-up delivery produces one new reply without duplicating the first reply.
+  - Follow-up delivery produces one new reply without duplicating the first
+    reply.
 docsRefs:
   - docs/channels/qa-channel.md
   - docs/gateway/configuration.md
@@ -24,10 +27,13 @@ codeRefs:
   - extensions/qa-lab/src/suite-runtime-gateway.ts
 execution:
   kind: flow
-  summary: Verify qa-channel readiness recovery does not duplicate old outbound delivery.
+  summary: Verify qa-channel readiness recovery does not duplicate old outbound
+    delivery.
   config:
-    firstPrompt: "@openclaw Reconnect dedupe setup marker. Reply exactly: RECONNECT-FIRST-OK"
-    secondPrompt: "@openclaw Reconnect dedupe follow-up marker. Reply exactly: RECONNECT-SECOND-OK"
+    firstPrompt: "@openclaw Reconnect dedupe setup marker. Reply exactly:
+      RECONNECT-FIRST-OK"
+    secondPrompt: "@openclaw Reconnect dedupe follow-up marker. Reply exactly:
+      RECONNECT-SECOND-OK"
     firstMarker: RECONNECT-FIRST-OK
     secondMarker: RECONNECT-SECOND-OK
 ```

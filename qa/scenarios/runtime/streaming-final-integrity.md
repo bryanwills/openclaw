@@ -7,15 +7,19 @@ surface: runtime
 runtimeParityTier: live-only
 coverage:
   primary:
-    - channels.streaming
+    - agent-runtime-and-provider-execution.streaming-and-progress.streaming-replies
   secondary:
-    - runtime.fallback-delivery
-    - runtime.delivery
-objective: Verify channel-visible streaming settles into one coherent final message without token-delta chatter.
+    - agent-runtime-and-provider-execution.agent-turn-execution.abort-and-terminal-outcomes
+    - agent-runtime-and-provider-execution.agent-turn-execution.session-and-run-coordination
+    - channel-framework.outbound-delivery-and-reply-pipeline.automatic-final-reply-delivery
+objective: Verify channel-visible streaming settles into one coherent final
+  message without token-delta chatter.
 successCriteria:
   - Agent produces a final marker reply.
-  - QA channel transcript does not contain multiple partial outbound token messages for the same turn.
-  - Any edit/chunk events leave exactly one final marker-bearing outbound message.
+  - QA channel transcript does not contain multiple partial outbound token
+    messages for the same turn.
+  - Any edit/chunk events leave exactly one final marker-bearing outbound
+    message.
 docsRefs:
   - docs/concepts/streaming.md
   - docs/channels/qa-channel.md

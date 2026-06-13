@@ -80,15 +80,31 @@ function selectQaSuiteScenarios(params: {
     if (missingScenarioIds.length > 0) {
       throw new Error(`unknown QA scenario id(s): ${missingScenarioIds.join(", ")}`);
     }
-    return [...requestedScenarioIds].map((scenarioId) => scenarioById.get(scenarioId)!);
+    const selectedScenarios = [...requestedScenarioIds].map(
+      (scenarioId) => scenarioById.get(scenarioId)!,
+    );
+    const nativeScenarios = selectedScenarios.filter(
+      (scenario) => scenario.execution.kind !== "flow",
+    );
+    if (nativeScenarios.length > 0) {
+      const scenarioList = nativeScenarios
+        .map((scenario) => `${scenario.id} (${scenario.execution.kind})`)
+        .join(", ");
+      throw new Error(
+        `qa suite can only run qa-flow scenarios; native test scenario(s) must run through their test runner: ${scenarioList}`,
+      );
+    }
+    return selectedScenarios;
   }
-  return params.scenarios.filter((scenario) =>
-    scenarioMatchesLiveLane({
-      scenario,
-      providerMode: params.providerMode,
-      primaryModel: params.primaryModel,
-      claudeCliAuthMode: params.claudeCliAuthMode,
-    }),
+  return params.scenarios.filter(
+    (scenario) =>
+      scenario.execution.kind === "flow" &&
+      scenarioMatchesLiveLane({
+        scenario,
+        providerMode: params.providerMode,
+        primaryModel: params.primaryModel,
+        claudeCliAuthMode: params.claudeCliAuthMode,
+      }),
   );
 }
 

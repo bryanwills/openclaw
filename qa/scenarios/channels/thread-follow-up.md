@@ -6,10 +6,11 @@ title: Threaded follow-up
 surface: thread
 coverage:
   primary:
-    - channels.threads
+    - channel-framework.group-thread-and-ambient-room-behavior.native-threads
   secondary:
-    - channels.qa-channel
-objective: Verify the agent can keep follow-up work inside a thread and not leak context into the root channel.
+    - channel-framework.conversation-routing-and-delivery.plugin-registry-resolution
+objective: Verify the agent can keep follow-up work inside a thread and not leak
+  context into the root channel.
 successCriteria:
   - Agent creates or uses a thread for deeper work.
   - Follow-up messages stay attached to the thread.
@@ -22,9 +23,11 @@ codeRefs:
   - extensions/qa-lab/src/bus-state.ts
 execution:
   kind: flow
-  summary: Verify the agent can keep follow-up work inside a thread and not leak context into the root channel.
+  summary: Verify the agent can keep follow-up work inside a thread and not leak
+    context into the root channel.
   config:
-    prompt: "@openclaw reply in one short sentence inside this thread only. Do not use ACP or any external runtime. Confirm you stayed in-thread."
+    prompt: "@openclaw reply in one short sentence inside this thread only. Do not
+      use ACP or any external runtime. Confirm you stayed in-thread."
 ```
 
 ```yaml qa-flow

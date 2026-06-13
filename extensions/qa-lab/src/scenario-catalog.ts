@@ -46,25 +46,52 @@ const qaScenarioConfigSchema = z.record(z.string(), z.unknown()).superRefine((co
   }
 });
 
-const qaScenarioExecutionSchema = z.object({
+function isRepoRootRelativeRef(value: string) {
+  return !path.isAbsolute(value) && value.split(/[\\/]+/u).every((part) => part !== "..");
+}
+
+const qaScenarioRepoRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .regex(/^[A-Za-z0-9._/-]+$/, {
+    message: "repo refs must be repo-root relative paths",
+  })
+  .refine(isRepoRootRelativeRef, {
+    message: "repo refs must not be absolute or contain parent-directory segments",
+  });
+
+const qaFlowScenarioExecutionSchema = z.object({
   kind: z.literal("flow").default("flow"),
   summary: z.string().trim().min(1).optional(),
   config: qaScenarioConfigSchema.optional(),
 });
 
-const qaCoverageIdSchema = z
+const qaNativeTestScenarioExecutionSchema = z.object({
+  kind: z.enum(["vitest", "playwright"]),
+  summary: z.string().trim().min(1).optional(),
+  path: qaScenarioRepoRefSchema,
+  config: qaScenarioConfigSchema.optional(),
+});
+
+const qaScenarioExecutionSchema = z.union([
+  qaFlowScenarioExecutionSchema,
+  qaNativeTestScenarioExecutionSchema,
+]);
+
+const qaScenarioFeatureIdSchema = z
   .string()
   .trim()
   .regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/, {
-    message: "coverage ids must use lowercase dotted or dashed tokens",
+    message: "taxonomy feature ids must use lowercase dotted or dashed tokens",
   });
 
-const qaCoverageIdListSchema = z.array(qaCoverageIdSchema).min(1);
+const qaScenarioFeatureIdListSchema = z.array(qaScenarioFeatureIdSchema).min(1);
 
 const qaScenarioCoverageSchema = z
   .object({
-    primary: qaCoverageIdListSchema,
-    secondary: qaCoverageIdListSchema.optional(),
+    primary: qaScenarioFeatureIdListSchema,
+    secondary: qaScenarioFeatureIdListSchema.optional(),
   })
   .superRefine((coverage, ctx) => {
     const seen = new Set<string>();
@@ -84,7 +111,7 @@ const qaScenarioCoverageSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [intent, index],
-          message: `duplicate coverage id: ${id}`,
+          message: `duplicate taxonomy feature id: ${id}`,
         });
       }
     }
@@ -377,13 +404,14 @@ export function readQaScenarioPack(): QaScenarioPack {
         parsedScenario.execution ?? {},
         relativePath,
       );
-      const flow = extractQaScenarioFlow(content, relativePath);
+      const flow =
+        execution.kind === "flow" ? extractQaScenarioFlow(content, relativePath) : undefined;
       return {
         ...parsedScenario,
         sourcePath: relativePath,
         execution: {
           ...execution,
-          flow,
+          ...(flow ? { flow } : {}),
         },
       } satisfies QaSeedScenarioWithSource;
     })(),

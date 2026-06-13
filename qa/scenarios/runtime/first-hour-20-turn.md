@@ -7,10 +7,11 @@ surface: runtime
 runtimeParityTier: standard
 coverage:
   primary:
-    - runtime.first-hour-20
+    - agent-runtime-and-provider-execution.agent-turn-execution.turn-startup-and-runtime-choice
   secondary:
-    - runtime.long-context
-objective: Verify both runtimes preserve a same-session conversation across the required 20-turn maintainer gate.
+    - session-memory-and-context-engine.token-management.token-pressure
+objective: Verify both runtimes preserve a same-session conversation across the
+  required 20-turn maintainer gate.
 successCriteria:
   - The same QA session accepts 20 sequential user turns.
   - Every turn receives the requested marker reply without losing session state.
